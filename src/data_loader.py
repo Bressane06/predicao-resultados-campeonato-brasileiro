@@ -33,14 +33,40 @@ def limpar_partidas() -> pd.DataFrame:
     return df[["ID", "rodada", "data", "ano", "mes", "dia_semana", "mandante", "visitante",
             "arena", "gm", "gv", "resultado"]]
 
+def limpar_estatisticas() -> pd.DataFrame:
+
+    df = pd.read_csv(CONFIGURACAO.ARQ_ESTAT)
+    df = df.drop_duplicates(["partida_id", "clube"])
+
+    # os dados estão com o %, vou tirar isso, deixar apenas o numero
+    for col in ["posse_de_bola", "precisao_passes"]:
+        df[col] = pd.to_numeric(
+            df[col].astype(str).str.replace("%", "", regex=False),
+            errors="coerce"
+        )
+
+    df["cartoes_est"] = df.cartao_amarelo + df.cartao_vermelho
+
+    # linha valida = algum indicador de jogo registrado; senao e "sem dado" (zeros falsos)
+    valida = (df.chutes > 0) | (df.faltas > 0) | (df.escanteios > 0) | (df.passes > 0)
+    cols = ["chutes", "chutes_no_alvo", "posse_de_bola", "faltas", "escanteios", "cartoes_est"]
+    # nas linhas consideradas inválidas, substituímos os zeros por NaN.
+    # o ~ indica isso
+    df.loc[~valida, cols] = np.nan
+    df = df.rename(columns={"posse_de_bola": "posse", "partida_id": "ID"})
+    return df[["ID", "clube", "chutes", "chutes_no_alvo", "posse", "faltas", "escanteios", "cartoes_est"]]
+
 def juntar_operacoes(salvar: bool = True):
     partidas = limpar_partidas()
+    estatisticas = limpar_estatisticas()
     if salvar:
         CONFIGURACAO.PROCESSED.mkdir(parents=True, exist_ok=True)
         partidas.to_csv(CONFIGURACAO.PROCESSED / "partidas_limpas.csv", index=False)
-    return partidas
+        estatisticas.to_csv(CONFIGURACAO.PROCESSED / "estatisticas_limpas.csv", index=False)
+
+    return partidas, estatisticas
 
 # juntando tudo
 if __name__ == "__main__":
-    p = juntar_operacoes()
-    print("partidas", p.shape)
+    p, e = juntar_operacoes()
+
