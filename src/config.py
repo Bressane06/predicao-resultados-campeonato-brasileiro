@@ -1,3 +1,4 @@
+# @Author: gabriel.bressane  # @Date: 2026-11-03 00:41:13  # @Last Modified by:   gabriel.bressane  # @Last Modified time: 2026-11-03 00:41:13 
 # configuracao de caminhos: 
 
 from pathlib import Path

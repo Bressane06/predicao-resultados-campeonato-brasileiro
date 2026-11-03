@@ -5,6 +5,16 @@ import pandas as pd
 
 from . import config as CONFIGURACAO
 
+def arrumar_minutos(serie: pd.DataFrame) -> pd.DataFrame:
+
+    """'45+2' -> base=45, extra=2. Minuto de ordenacao: 45+2 vem antes de 46."""
+    s = serie.astype(str).str.strip()
+    partes = s.str.split("+", n=1, expand=True)
+    base = pd.to_numeric(partes[0], errors="coerce")
+    extra = pd.to_numeric(partes[1], errors="coerce").fillna(0) if partes.shape[1] > 1 else 0
+    return pd.DataFrame({"base": base, "ordem": base + extra / 100.0})
+
+
 # limpando arquivo de partidas (campeonato-brasileiro-full.csv)
 def limpar_partidas() -> pd.DataFrame:
 
@@ -56,17 +66,74 @@ def limpar_estatisticas() -> pd.DataFrame:
     df = df.rename(columns={"posse_de_bola": "posse", "partida_id": "ID"})
     return df[["ID", "clube", "chutes", "chutes_no_alvo", "posse", "faltas", "escanteios", "cartoes_est"]]
 
+def validar_gols(partidas: pd.DataFrame) -> pd.DataFrame:
+
+    df = pd.read_csv(CONFIGURACAO.ARQ_GOLS)
+    # chamar a func que arruma os minutos dos gols
+    df = pd.concat([df, arrumar_minutos(df["minuto"])], axis=1).rename(columns={"partida_id": "ID"})
+
+    df["gol_1t"] = (df.base <= 45).astype(int)
+    df["gol_2t"] = ((df.base > 45) & (df.base < 90)).astype(int)
+    df["gol_final"] = (df.base >= 90).astype(int)
+    por_clube = df.groupby(["ID", "clube"])[["gol_1t", "gol_2t", "gol_final"]].sum()
+
+    # quem marcou primeiro
+    gols = df.sort_values(["ID", "ordem"])
+    primeiro = gols.groupby("ID").head(1).set_index("ID")
+    primeiro_clube = primeiro["clube"]
+
+    # isso aqui é feito, pois os jogos só foram cobrir gols após 2014
+    cobertos = set(df.ID) | set(partidas.loc[(partidas.gm + partidas.gv == 0) & (partidas.ano >= 2014), "ID"])
+
+    linhas = []
+
+    # isso foi feito para juntar 
+    for partida in partidas[partidas.ID.isin(cobertos)].itertuples():
+        for clube in (partida.mandante, partida.visitante):
+            if (partida.ID, clube) in por_clube.index:
+                estatisticas = por_clube.loc[(partida.ID, clube)]
+                gols_primeiro_tempo = estatisticas.gol_1t
+                gols_segundo_tempo = estatisticas.gol_2t
+                gols_minutos_finais = estatisticas.gol_final
+            else:
+                gols_primeiro_tempo = 0
+                gols_segundo_tempo = 0
+                gols_minutos_finais = 0
+
+            clube_primeiro_gol = primeiro_clube.get(partida.ID, np.nan)
+
+            marcou_primeiro = (
+                np.nan
+                if pd.isna(clube_primeiro_gol)
+                else float(clube_primeiro_gol == clube)
+            )
+
+            linhas.append((
+                partida.ID,
+                clube,
+                gols_primeiro_tempo,
+                gols_segundo_tempo,
+                gols_minutos_finais,
+                marcou_primeiro
+            ))
+            
+    return pd.DataFrame(linhas, columns=["ID", "clube", "gols_1t", "gols_2t", "gols_finais", "marcou_primeiro"])
+
+
 def juntar_operacoes(salvar: bool = True):
     partidas = limpar_partidas()
     estatisticas = limpar_estatisticas()
+    gols = validar_gols(partidas)
     if salvar:
         CONFIGURACAO.PROCESSED.mkdir(parents=True, exist_ok=True)
         partidas.to_csv(CONFIGURACAO.PROCESSED / "partidas_limpas.csv", index=False)
         estatisticas.to_csv(CONFIGURACAO.PROCESSED / "estatisticas_limpas.csv", index=False)
+        gols.to_csv(CONFIGURACAO.PROCESSED / "gols_limpos.csv", index=False)
 
-    return partidas, estatisticas
+
+    return partidas, estatisticas, gols
 
 # juntando tudo
 if __name__ == "__main__":
-    p, e = juntar_operacoes()
+    p, e, g = juntar_operacoes()
 
