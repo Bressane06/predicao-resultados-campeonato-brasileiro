@@ -95,5 +95,50 @@ def criar_base_clubes(salvar: bool = True) -> pd.DataFrame:
     return base
 
 
+def calcular_desempenho_recente(df: pd.DataFrame) -> pd.DataFrame:
+
+    df = df.sort_values(["clube", "data", "ID"]).copy()
+    colunas = {
+        "gols_marcados": "media_gols_marcados_5",
+        "gols_sofridos": "media_gols_sofridos_5",
+        "pontos": "media_pontos_5"
+    }
+
+    # Calcula as medias dos cinco jogos anteriores
+    for origem, destino in colunas.items():
+
+        df[destino] = (
+            df.groupby("clube")[origem]
+              .transform(
+                  lambda x: x.shift(1).rolling(
+                      window=5,
+                      min_periods=1
+                  ).mean()
+              )
+        )
+
+    # Calcula quantidade de vitorias, empates e derrotas
+    for resultado in ["V", "E", "D"]:
+
+        df[f"{resultado.lower()}_ultimos_5"] = (
+            df.groupby("clube")["resultado_clube"]
+              .transform(
+                  lambda x: (
+                      x.shift(1) == resultado
+                  ).rolling(
+                      window=5,
+                      min_periods=1
+                  ).sum()
+              )
+        )
+
+    # Calcula o aproveitamento nos ultimos cinco jogos
+    df["aproveitamento_5"] = (
+        df["media_pontos_5"] / 3
+    )
+
+    return df
+
+
 if __name__ == "__main__":
     df = criar_base_clubes()
