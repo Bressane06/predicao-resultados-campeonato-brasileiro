@@ -3,6 +3,7 @@
 
 import pandas as pd
 
+from .persistencia import salvar_modelo
 from . import config as C
 from .modelos import criar_classificador, criar_baseline
 from .avaliacao import avaliar_classificacao
@@ -54,27 +55,62 @@ def preparar_dados(base):
 
 
 def dividir_dados(X, y, base):
-    """Realiza a divisao cronologica entre treino e teste."""
+    """Separa os dados cronologicamente em treino, validacao e teste."""
 
-    datas = pd.to_datetime(base.loc[X.index, "data"], errors="coerce")
+    datas = pd.to_datetime(
+        base.loc[X.index, "data"],
+        errors="coerce"
+    )
 
     if datas.isna().any():
         raise ValueError("Existem datas invalidas na base.")
 
-    ordem = datas.sort_values().index
+    # Ordena as partidas cronologicamente.
+    ordem = datas.sort_values(kind="stable").index
 
     X = X.loc[ordem]
     y = y.loc[ordem]
+    anos = datas.loc[ordem].dt.year
 
-    limite = int(len(X) * C.PROPORCAO_TREINO)
+    # Identifica os indices de cada conjunto.
+    indices_treino = anos[
+        anos <= C.ANO_FIM_TREINO
+    ].index
 
-    X_treino = X.iloc[:limite]
-    X_teste = X.iloc[limite:]
+    indices_validacao = anos[
+        anos == C.ANO_VALIDACAO
+    ].index
 
-    y_treino = y.iloc[:limite]
-    y_teste = y.iloc[limite:]
+    indices_teste = anos[
+        anos >= C.ANO_INICIO_TESTE
+    ].index
 
-    return X_treino, X_teste, y_treino, y_teste
+    # Verifica se todos os conjuntos possuem dados.
+    if (
+        len(indices_treino) == 0
+        or len(indices_validacao) == 0
+        or len(indices_teste) == 0
+    ):
+        raise ValueError(
+            "Um dos conjuntos de dados esta vazio."
+        )
+
+    X_treino = X.loc[indices_treino]
+    X_validacao = X.loc[indices_validacao]
+    X_teste = X.loc[indices_teste]
+
+    y_treino = y.loc[indices_treino]
+    y_validacao = y.loc[indices_validacao]
+    y_teste = y.loc[indices_teste]
+
+    return (
+        X_treino,
+        X_validacao,
+        X_teste,
+        y_treino,
+        y_validacao,
+        y_teste
+    )
 
 
 def exibir_resultados(nome, metricas, por_classe, matriz):
@@ -99,6 +135,14 @@ def main():
     # 1. Carregamento da base.
     base = carregar_base()
 
+    datas = pd.to_datetime(base["data"], errors="coerce")
+
+    print("Primeira partida:", datas.min())
+    print("Última partida:", datas.max())
+
+    print("\nQuantidade de partidas por ano:")
+    print(datas.dt.year.value_counts().sort_index())
+
     print(f"Partidas carregadas: {len(base)}")
 
     # 2. Preparacao dos atributos e resultados.
@@ -107,63 +151,126 @@ def main():
     print(f"Quantidade de atributos: {X.shape[1]}")
 
     # 3. Divisao cronologica.
-    X_treino, X_teste, y_treino, y_teste = dividir_dados(
-        X, y, base
-    )
+    (
+        X_treino,
+        X_validacao,
+        X_teste,
+        y_treino,
+        y_validacao,
+        y_teste
+    ) = dividir_dados(X, y, base)
 
     print(f"Partidas para treino: {len(X_treino)}")
+    print(f"Partidas para validacao: {len(X_validacao)}")
     print(f"Partidas para teste: {len(X_teste)}")
 
     print("\nDistribuicao das classes no treinamento:")
     print(y_treino.value_counts())
 
-    # 4. Treinamento do Random Forest.
     modelo = criar_classificador()
 
     print("\nTreinando Random Forest...")
     modelo.fit(X_treino, y_treino)
 
-    previsoes_rf = modelo.predict(X_teste)
+    # Previsoes para validacao.
+    previsoes_validacao = modelo.predict(X_validacao)
 
-    # 5. Treinamento do baseline.
+    # Previsoes para teste.
+    previsoes_teste = modelo.predict(X_teste)
+
+    # Baseline.
     baseline = criar_baseline()
-
-    print("Treinando baseline...")
     baseline.fit(X_treino, y_treino)
 
-    previsoes_baseline = baseline.predict(X_teste)
+    previsoes_baseline_validacao = baseline.predict(X_validacao)
+    previsoes_baseline_teste = baseline.predict(X_teste)
 
-    print(
-        f"Classe prevista pelo baseline: "
-        f"{baseline.classes_[baseline.class_prior_.argmax()]}"
+    # Probabilidades do Random Forest.
+    probabilidades_validacao = modelo.predict_proba(X_validacao)
+    probabilidades_teste = modelo.predict_proba(X_teste)
+
+    # Probabilidades do baseline.
+    probabilidades_baseline_validacao = baseline.predict_proba(
+        X_validacao
     )
 
-    # 6. Avaliacao do Random Forest.
+    probabilidades_baseline_teste = baseline.predict_proba(
+        X_teste
+    )
+
+    # 6. Avaliacao dos modelos na validacao.
+
     metricas_rf, classes_rf, matriz_rf = avaliar_classificacao(
-        y_teste,
-        previsoes_rf
+        y_validacao,
+        previsoes_validacao,
+        probabilidades_validacao,
+        modelo.classes_
     )
 
     exibir_resultados(
-        "RANDOM FOREST",
+        "RANDOM FOREST - VALIDACAO",
         metricas_rf,
         classes_rf,
         matriz_rf
     )
 
-    # 7. Avaliacao do baseline.
     metricas_base, classes_base, matriz_base = avaliar_classificacao(
-        y_teste,
-        previsoes_baseline
+        y_validacao,
+        previsoes_baseline_validacao,
+        probabilidades_baseline_validacao,
+        baseline.classes_
     )
 
     exibir_resultados(
-        "BASELINE",
+        "BASELINE - VALIDACAO",
         metricas_base,
         classes_base,
         matriz_base
     )
 
+    # 7. Avaliacao dos modelos no teste.
+
+    metricas_rf, classes_rf, matriz_rf = avaliar_classificacao(
+        y_teste,
+        previsoes_teste,
+        probabilidades_teste,
+        modelo.classes_
+    )
+
+    exibir_resultados(
+        "RANDOM FOREST - TESTE",
+        metricas_rf,
+        classes_rf,
+        matriz_rf
+    )
+
+    metricas_base, classes_base, matriz_base = avaliar_classificacao(
+        y_teste,
+        previsoes_baseline_teste,
+        probabilidades_baseline_teste,
+        baseline.classes_
+    )
+
+    exibir_resultados(
+        "BASELINE - TESTE",
+        metricas_base,
+        classes_base,
+        matriz_base
+    )
+    print("\nDistribuicao das classes:")
+
+    print("\nTreinamento:")
+    print(y_treino.value_counts())
+
+    print("\nValidacao:")
+    print(y_validacao.value_counts())
+
+    print("\nTeste:")
+    print(y_teste.value_counts())
+
+    modelo.fit(X_treino, y_treino)
+
+    salvar_modelo(modelo)
 
 if __name__ == "__main__":
     main()

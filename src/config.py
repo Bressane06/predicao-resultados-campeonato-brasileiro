@@ -7,12 +7,15 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent
 RAW = RAIZ / "data" / "raw"
 PROCESSED = RAIZ / "data" / "processed"
+MODELOS = RAIZ / "modelos"
+ARQ_MODELO = MODELOS / "random_forest.joblib"
 
 ARQ_FULL = RAW / "campeonato-brasileiro-full.csv"
 ARQ_ESTAT = RAW / "campeonato-brasileiro-estatisticas-full.csv"
 ARQ_GOLS = RAW / "campeonato-brasileiro-gols.csv"
 ARQ_CARTOES = RAW / "campeonato-brasileiro-cartoes.csv"
 ARQ_BASE = PROCESSED / "base_modelagem.csv"
+
 
 # Meia-vida da forma recente, em quantidade de observações.
 HL_CURTO = 5
@@ -30,8 +33,12 @@ H2H_N = 5
 H2H_DECAY = 0.80
 
 SEED = 42
-PROPORCAO_TREINO = 0.80
+# PROPORCAO_TREINO = 0.80
 
 CLASSES = ["M", "E", "V"]
 
 N_ESTIMATORS = 100
+
+ANO_FIM_TREINO = 2022
+ANO_VALIDACAO = 2023
+ANO_INICIO_TESTE = 2024
