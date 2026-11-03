@@ -119,21 +119,53 @@ def validar_gols(partidas: pd.DataFrame) -> pd.DataFrame:
             
     return pd.DataFrame(linhas, columns=["ID", "clube", "gols_1t", "gols_2t", "gols_finais", "marcou_primeiro"])
 
+def validar_cartoes(partidas: pd.DataFrame) -> pd.DataFrame:
+
+    df = pd.read_csv(CONFIGURACAO.ARQ_CARTOES)
+    df = df.rename(columns={"partida_id": "ID"})
+    df = pd.concat([df, arrumar_minutos(df["minuto"])], axis=1)
+    
+    df["amarelo"] = (df.cartao == "Amarelo").astype(int)
+    df["vermelho"] = (df.cartao == "Vermelho").astype(int)
+    df["c2t"] = (df.base > 45).fillna(False).astype(int)
+
+    por = df.groupby(["ID", "clube"])[["amarelo", "vermelho", "c2t"]].sum()
+    cobertos = set(df.ID)
+
+    linhas = []
+
+    for partida in partidas[partidas.ID.isin(cobertos)].itertuples():
+        for clube in (partida.mandante, partida.visitante):
+
+            if(partida.ID, clube) in por.index:
+                estatisticas_cartoes = por.loc[(partida.ID, clube)]
+                quantidades_cartoes = estatisticas_cartoes.values
+            else:
+                quantidades_cartoes = (0, 0, 0)
+
+            linhas.append((
+                partida.ID,
+                clube,
+                *quantidades_cartoes
+            ))
+
+    return pd.DataFrame(linhas, columns=["ID", "clube", "amarelos", "vermelhos", "cartoes_2t"])
 
 def juntar_operacoes(salvar: bool = True):
     partidas = limpar_partidas()
     estatisticas = limpar_estatisticas()
     gols = validar_gols(partidas)
+    cartoes = validar_cartoes(partidas)
     if salvar:
         CONFIGURACAO.PROCESSED.mkdir(parents=True, exist_ok=True)
         partidas.to_csv(CONFIGURACAO.PROCESSED / "partidas_limpas.csv", index=False)
         estatisticas.to_csv(CONFIGURACAO.PROCESSED / "estatisticas_limpas.csv", index=False)
         gols.to_csv(CONFIGURACAO.PROCESSED / "gols_limpos.csv", index=False)
+        cartoes.to_csv(CONFIGURACAO.PROCESSED / "cartoes_limpos.csv", index=False)
 
-
-    return partidas, estatisticas, gols
+    return partidas, estatisticas, gols, cartoes
 
 # juntando tudo
 if __name__ == "__main__":
-    p, e, g = juntar_operacoes()
+    p, e, g, c = juntar_operacoes()
 
