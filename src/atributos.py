@@ -84,26 +84,61 @@ def calcular_atributos_clube(historico_clubes):
 # -----------------------------------------------------------------------------
 # Elo
 
-def calcular_classificacao_elo(partidas, fator_k=20.0, vantagem_mandante=65.0, regressao_anual=0.25):
+def calcular_classificacao_elo(partidas):
     """Calcula a classificação Elo pré-jogo dos mandantes e visitantes.
-    Regride 25% em direção à média a cada nova temporada."""
-    classificacao_elo = defaultdict(lambda: 1500.0)
+    Regride os ratings em direção à média a cada nova temporada."""
+
+    classificacao_elo = defaultdict(
+        lambda: CONFIGURACAO.ELO_INICIAL
+    )
+
     registros_elo, ano_atual = [], None
+
     for partida in partidas.sort_values(["data", "ID"]).itertuples():
         if partida.ano != ano_atual:
             if ano_atual is not None:
                 for clube in list(classificacao_elo):
-                    classificacao_elo[clube] = 1500 + (1 - regressao_anual) * (classificacao_elo[clube] - 1500)
+                    classificacao_elo[clube] = (
+                        CONFIGURACAO.ELO_INICIAL
+                        + (1 - CONFIGURACAO.ELO_REGRESSAO_ANUAL)
+                        * (classificacao_elo[clube] - CONFIGURACAO.ELO_INICIAL)
+                    )
+
             ano_atual = partida.ano
-        elo_mandante, elo_visitante = classificacao_elo[partida.mandante], classificacao_elo[partida.visitante]
-        registros_elo.append((partida.ID, elo_mandante, elo_visitante))
+
+        elo_mandante = classificacao_elo[partida.mandante]
+        elo_visitante = classificacao_elo[partida.visitante]
+
+        registros_elo.append(
+            (partida.ID, elo_mandante, elo_visitante)
+        )
+
         if pd.notna(partida.gm):
-            probabilidade_esperada = 1 / (1 + 10 ** (-(elo_mandante + vantagem_mandante - elo_visitante) / 400))
-            resultado_obtido = 1.0 if partida.gm > partida.gv else (0.5 if partida.gm == partida.gv else 0.0)
-            variacao_elo = fator_k * (np.log(abs(partida.gm - partida.gv) + 1) + 1) * (resultado_obtido - probabilidade_esperada)
+            probabilidade_esperada = 1 / (
+                1 + 10 ** (
+                    -(elo_mandante + CONFIGURACAO.ELO_VANTAGEM_MANDANTE
+                      - elo_visitante) / 400
+                )
+            )
+
+            resultado_obtido = (
+                1.0 if partida.gm > partida.gv
+                else (0.5 if partida.gm == partida.gv else 0.0)
+            )
+
+            variacao_elo = (
+                CONFIGURACAO.ELO_K
+                * (np.log(abs(partida.gm - partida.gv) + 1) + 1)
+                * (resultado_obtido - probabilidade_esperada)
+            )
+
             classificacao_elo[partida.mandante] += variacao_elo
             classificacao_elo[partida.visitante] -= variacao_elo
-    return pd.DataFrame(registros_elo, columns=["ID", "elo_mandante", "elo_visitante"])
+
+    return pd.DataFrame(
+        registros_elo,
+        columns=["ID", "elo_mandante", "elo_visitante"]
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -249,3 +284,11 @@ if __name__ == "__main__":
     print(base.shape)
     print("Atributos numéricos:", len(obter_atributos_numericos(base)))
     print(base.isna().mean().sort_values(ascending=False).head(8).round(2))
+
+    print("Vantagem do mandante:", CONFIGURACAO.ELO_VANTAGEM_MANDANTE)
+
+    print(
+        base[
+            ["elo_mandante", "elo_visitante", "diferenca_elo"]
+        ].describe()
+    )

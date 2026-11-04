@@ -181,6 +181,7 @@ def main():
     # Baseline.
     baseline = criar_baseline()
     baseline.fit(X_treino, y_treino)
+    salvar_modelo(modelo)
 
     previsoes_baseline_validacao = baseline.predict(X_validacao)
     previsoes_baseline_teste = baseline.predict(X_teste)
@@ -268,9 +269,6 @@ def main():
     print("\nTeste:")
     print(y_teste.value_counts())
 
-    modelo.fit(X_treino, y_treino)
-
-    salvar_modelo(modelo)
 
 if __name__ == "__main__":
     main()

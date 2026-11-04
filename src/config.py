@@ -9,6 +9,8 @@ RAW = RAIZ / "data" / "raw"
 PROCESSED = RAIZ / "data" / "processed"
 MODELOS = RAIZ / "modelos"
 ARQ_MODELO = MODELOS / "random_forest.joblib"
+ARQ_MODELO_MANDANTE = MODELOS / "random_forest_mandante.joblib"
+ARQ_MODELO_VISITANTE = MODELOS / "random_forest_visitante.joblib"
 
 ARQ_FULL = RAW / "campeonato-brasileiro-full.csv"
 ARQ_ESTAT = RAW / "campeonato-brasileiro-estatisticas-full.csv"
@@ -25,7 +27,7 @@ HL_STATS = 5
 MAX_GAP_DIAS = 365
 
 ELO_K = 20.0
-ELO_VANTAGEM_MANDANTE = 65.0
+ELO_VANTAGEM_MANDANTE = 60.0
 ELO_REGRESSAO_ANUAL = 0.25
 ELO_INICIAL = 1500.0
 
