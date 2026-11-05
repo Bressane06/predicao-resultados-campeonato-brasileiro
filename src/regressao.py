@@ -16,29 +16,24 @@ from .modelos import (
     criar_regressor_xgboost,
     criar_baseline_probabilidades
 )
-from .persistencia import salvar_modelo
+from .persistencia import salvar_modelo, carregar_modelo
 from .avaliacao import avaliar_regressao, avaliar_probabilidades
 from .treino import carregar_base, dividir_dados
-
+from .data_loader import juntar_operacoes
+from src.atributos import (
+    gerar_atributos_partida_futura,
+    obter_historico_partida,
+    obter_atributos_numericos
+)
 def avaliar_baseline_classificacao(base, probabilidades_poisson):
     """Compara o baseline de classificacao com as probabilidades de Poisson."""
 
     base = base.copy()
     base["resultado"] = base["resultado"].astype(str)
-
     base = base.dropna(subset=["resultado"])
 
     # Utiliza os mesmos atributos numericos dos modelos de regressao.
-    ignorar = {
-        "ID", "id", "data", "gm", "gv", "resultado"
-    }
-
-    colunas = [
-        coluna
-        for coluna in base.columns
-        if coluna not in ignorar
-        and pd.api.types.is_numeric_dtype(base[coluna])
-    ]
+    colunas = obter_atributos_numericos(base)
 
     X = base[colunas]
     y = base["resultado"]
@@ -94,22 +89,22 @@ def avaliar_baseline_classificacao(base, probabilidades_poisson):
         ].to_numpy()
     )
 
-    print("\n===== COMPARACAO: BASELINE VS POISSON =====")
-    print(f"Partidas avaliadas: {len(indices)}")
-
+    # Exibe a comparacao entre os metodos.
     comparacao = pd.DataFrame({
         "Baseline": metricas_baseline,
         "Poisson": metricas_poisson
     })
 
+    print("\n===== COMPARACAO: BASELINE VS POISSON =====")
+    print(f"Partidas avaliadas: {len(indices)}")
     print(comparacao.round(4))
 
     return comparacao
 
-def gerar_probabilidades_partidas(base, resultado_gm, resultado_gv):
+
+def gerar_probabilidades_partidas(base, resultado_gm, resultado_gv, rho=0.0):
     """Combina as previsoes de GM e GV para calcular probabilidades."""
 
-    # Identifica partidas presentes nas duas validacoes.
     indices = resultado_gm["previsoes"].index.intersection(
         resultado_gv["previsoes"].index
     )
@@ -121,35 +116,169 @@ def gerar_probabilidades_partidas(base, resultado_gm, resultado_gv):
 
     for indice in indices:
 
-        # Medias previstas de gols.
         lambda_mandante = max(0, previsoes_gm.loc[indice])
         lambda_visitante = max(0, previsoes_gv.loc[indice])
 
-        # Distribuicao de probabilidades dos placares.
         placares = calcular_matriz_placares(
             gols_mandante=lambda_mandante,
             gols_visitante=lambda_visitante,
-            rho=-0.05
+            rho=rho
         )
 
-        # Probabilidades de M, E e V.
         probabilidades = calcular_probabilidades_resultado(placares)
 
-        # Placar individual mais provavel.
-        melhor_placar = placares.stack().idxmax()
+        top_placares = placares.stack().nlargest(4)
+        melhor_placar = top_placares.index[0]
 
-        partidas.append({
+        partida = {
             "ID": indice,
             "GM_previsto": lambda_mandante,
             "GV_previsto": lambda_visitante,
             "placar_previsto": f"{melhor_placar[0]} x {melhor_placar[1]}",
+            "P_00": placares.loc[0, 0],
             "P_M": probabilidades["M"],
             "P_E": probabilidades["E"],
             "P_V": probabilidades["V"],
             "resultado_real": base.loc[indice, "resultado"]
-        })
+        }
+
+        for posicao, (placar, probabilidade) in enumerate(
+            top_placares.items(),
+            start=1
+        ):
+            partida[f"placar_{posicao}"] = (
+                f"{placar[0]} x {placar[1]}"
+            )
+            partida[f"prob_placar_{posicao}"] = probabilidade
+
+        partidas.append(partida)
 
     return pd.DataFrame(partidas)
+
+
+def prever_partida(atributos_futuros, rho=-0.05, modelos=None):
+    """
+    Gera a previsão de gols e as probabilidades de uma partida.
+
+    Utiliza os modelos Poisson treinados para GM e GV.
+    """
+
+    # Carrega os modelos somente se não forem fornecidos.
+    if modelos is None:
+        modelos = carregar_modelos_treinados()
+
+    pacote_gm, pacote_gv = modelos
+
+    # Recupera os modelos e suas respectivas colunas.
+    modelo_gm = pacote_gm["modelo"]
+    modelo_gv = pacote_gv["modelo"]
+
+    colunas_gm = pacote_gm["colunas_atributos"]
+    colunas_gv = pacote_gv["colunas_atributos"]
+
+    # Organiza os atributos conforme o treinamento.
+    X_gm = atributos_futuros.reindex(columns=colunas_gm)
+    X_gv = atributos_futuros.reindex(columns=colunas_gv)
+
+    # Prevê as médias de gols.
+    lambda_mandante = max(0, float(modelo_gm.predict(X_gm)[0]))
+    lambda_visitante = max(0, float(modelo_gv.predict(X_gv)[0]))
+
+    # Calcula a distribuição dos placares.
+    placares = calcular_matriz_placares(
+        gols_mandante=lambda_mandante,
+        gols_visitante=lambda_visitante,
+        rho=rho
+    )
+
+    # Calcula as probabilidades de M, E e V.
+    probabilidades = calcular_probabilidades_resultado(placares)
+
+    # Seleciona os quatro placares mais prováveis.
+    top_placares = placares.stack().nlargest(4)
+
+    melhores_placares = [
+        {
+            "placar": f"{gm} x {gv}",
+            "probabilidade": float(probabilidade)
+        }
+        for (gm, gv), probabilidade in top_placares.items()
+    ]
+
+    return {
+        "GM_previsto": lambda_mandante,
+        "GV_previsto": lambda_visitante,
+        "P_00": float(placares.loc[0, 0]),
+        "P_M": probabilidades["M"],
+        "P_E": probabilidades["E"],
+        "P_V": probabilidades["V"],
+        "placares_mais_provaveis": melhores_placares,
+        "matriz_placares": placares
+    }
+
+
+def testar_previsao_futura(
+    mandante,
+    visitante,
+    data,
+    rodada,
+    arena,
+    rho=-0.05
+):
+    """Testa a previsao de uma partida futura."""
+
+    # Carrega os dados historicos.
+    partidas, estatisticas, gols, cartoes = juntar_operacoes(
+        salvar=False
+    )
+
+    # Gera os atributos da partida futura.
+    atributos = gerar_atributos_partida_futura(
+        partidas=partidas,
+        estatisticas=estatisticas,
+        gols=gols,
+        cartoes=cartoes,
+        mandante=mandante,
+        visitante=visitante,
+        data=data,
+        rodada=rodada,
+        arena=arena
+    )
+
+    # Realiza a previsao.
+    previsao = prever_partida(
+        atributos,
+        rho=rho
+    )
+
+    nome_modelo = (
+        "POISSON" if rho == 0
+        else "DIXON-COLES"
+    )
+
+    print(f"\n===== PREVISAO FUTURA - {nome_modelo} =====")
+    print(f"{mandante} x {visitante}")
+    print(f"Data: {data}")
+    print(f"Estadio: {arena}")
+
+    print(f"Gols esperados do mandante: {previsao['GM_previsto']:.2f}")
+    print(f"Gols esperados do visitante: {previsao['GV_previsto']:.2f}")
+
+    print(f"Probabilidade de 0 x 0: {previsao['P_00']:.2%}")
+    print(f"Vitoria do mandante: {previsao['P_M']:.2%}")
+    print(f"Empate: {previsao['P_E']:.2%}")
+    print(f"Vitoria do visitante: {previsao['P_V']:.2%}")
+
+    print("\n===== QUATRO PLACARES MAIS PROVAVEIS =====")
+
+    for item in previsao["placares_mais_provaveis"]:
+        print(
+            f"{item['placar']}: "
+            f"{item['probabilidade']:.2%}"
+        )
+
+
+
 def analisar_erros(y_real, y_previsto, nome):
     resultado = pd.DataFrame({
         "real": y_real,
@@ -195,21 +324,7 @@ def preparar_dados_regressao(base, alvo):
     base[alvo] = pd.to_numeric(base[alvo], errors="coerce")
     base = base.dropna(subset=[alvo])
 
-    ignorar = {
-        "ID",
-        "id",
-        "data",
-        "gm",
-        "gv",
-        "resultado"
-    }
-
-    colunas = [
-        coluna
-        for coluna in base.columns
-        if coluna not in ignorar
-        and pd.api.types.is_numeric_dtype(base[coluna])
-    ]
+    colunas = obter_atributos_numericos(base)
 
     if not colunas:
         raise ValueError("Nenhum atributo numerico encontrado.")
@@ -218,7 +333,6 @@ def preparar_dados_regressao(base, alvo):
     y = base[alvo]
 
     return X, y, base
-
 
 def exibir_resultados(nome, metricas):
     """Exibe as metricas de avaliacao."""
@@ -229,43 +343,50 @@ def exibir_resultados(nome, metricas):
         print(f"{nome_metrica}: {valor:.4f}")
 
 def analisar_zeros_e_vitorias_visitantes(base, probabilidades):
+    """Retorna análises de placares 0 a 0 e vitórias visitantes."""
+
     analise = probabilidades.merge(
         base[["ID", "gm", "gv"]],
         on="ID",
         how="left"
     )
 
-    # Análise dos placares 0 a 0
+    # Partidas que terminaram em 0 a 0.
     zeros = analise[
         (analise["gm"] == 0) & (analise["gv"] == 0)
+    ].copy()
+
+    acertos_00 = zeros[
+        zeros["placar_previsto"] == "0 x 0"
     ]
 
-    print("\n===== ANÁLISE DOS PLACARES 0 A 0 =====")
-    print("Partidas reais:", len(zeros))
-    print(
-        zeros[
-            ["ID", "GM_previsto", "GV_previsto",
-             "placar_previsto"]
-        ].to_string(index=False)
-    )
-
-    # Análise das vitórias visitantes
+    # Partidas que terminaram com vitória visitante.
     visitantes = analise[
         analise["resultado_real"] == "V"
-    ]
+    ].copy()
 
-    acertos = visitantes[
+    acertos_visitantes = visitantes[
         visitantes["P_V"] >= visitantes[["P_M", "P_E"]].max(axis=1)
     ]
 
-    print("\n===== ANÁLISE DAS VITÓRIAS VISITANTES =====")
-    print("Vitórias visitantes reais:", len(visitantes))
-    print("Vitórias visitantes previstas:", len(acertos))
-    print(
-        "Taxa de acerto:",
-        round(len(acertos) / len(visitantes), 4)
+    # Métricas.
+    recall_visitantes = (
+        len(acertos_visitantes) / len(visitantes)
         if len(visitantes) else 0
     )
+
+    return {
+        "zeros": zeros,
+        "acertos_00": acertos_00,
+        "visitantes": visitantes,
+        "acertos_visitantes": acertos_visitantes,
+        "total_zeros": len(zeros),
+        "total_acertos_00": len(acertos_00),
+        "total_visitantes": len(visitantes),
+        "total_acertos_visitantes": len(acertos_visitantes),
+        "recall_visitantes": recall_visitantes
+    }
+
 
 def treinar_modelo(base, alvo, caminho):
     """Treina, avalia e salva um modelo de regressao."""
@@ -301,18 +422,16 @@ def treinar_modelo(base, alvo, caminho):
     previsoes_validacao = modelo.predict(X_validacao)
     previsoes_baseline_validacao = baseline.predict(X_validacao)
 
-    # Previsoes na validacao
-    previstos_validacao = modelo.predict(X_validacao)
-
-    # Analise dos erros
+    # Analise dos erros.
     analisar_erros(
         y_validacao,
-        previstos_validacao,
+        previsoes_validacao,
         alvo.upper()
     )
+
     analisar_vies(
         y_validacao,
-        previstos_validacao,
+        previsoes_validacao,
         alvo.upper()
     )
 
@@ -417,12 +536,29 @@ def treinar_modelo(base, alvo, caminho):
         metricas_baseline
     )
 
-    # Persistencia do modelo Random Forest.
+    # Persistencia do Random Forest.
     salvar_modelo(modelo, caminho)
 
-    # Retorna o modelo Poisson e as previsoes da validacao.
-    return {
+    # Define o caminho do modelo Poisson.
+    caminho_poisson = caminho.with_name(
+        caminho.stem + "_poisson" + caminho.suffix
+    )
+
+    # Salva o modelo Poisson junto com seus metadados.
+    pacote_poisson = {
         "modelo": modelo_poisson,
+        "colunas_atributos": X_treino.columns.tolist(),
+        "alvo": alvo
+    }
+
+    salvar_modelo(pacote_poisson, caminho_poisson)
+    # Retorna os modelos e as previsoes da validacao.
+    return {
+        "modelo": modelo,
+        "modelo_poisson": modelo_poisson,
+        "caminho": caminho,
+        "caminho_poisson": caminho_poisson,
+        "colunas_atributos": X_treino.columns.tolist(),
         "previsoes": pd.Series(
             previstos_validacao_poisson,
             index=X_validacao.index
@@ -430,12 +566,10 @@ def treinar_modelo(base, alvo, caminho):
         "reais": y_validacao
     }
 
-
-def main():
+def carregar_dados_e_prever_validacao():
+    """Carrega os dados, treina os modelos e gera previsões de validação."""
 
     base = carregar_base()
-
-    print(f"Partidas carregadas: {len(base)}")
 
     # Modelo para prever os gols do mandante.
     resultado_gm = treinar_modelo(
@@ -451,40 +585,199 @@ def main():
         C.ARQ_MODELO_VISITANTE
     )
 
-    # Combina as previsoes para gerar probabilidades.
-    probabilidades = gerar_probabilidades_partidas(
+    # Gera probabilidades usando Poisson tradicional.
+    probabilidades_poisson = gerar_probabilidades_partidas(
         base,
         resultado_gm,
-        resultado_gv
+        resultado_gv,
+        rho=0.0
     )
-    
 
+    return base, probabilidades_poisson
+
+def carregar_dados_historicos():
+    """Carrega as bases históricas necessárias para a aplicação."""
+    return juntar_operacoes(salvar=False)
+
+
+def prever_partida_interativa(
+    partidas, estatisticas, gols, cartoes,
+    mandante, visitante, data, rodada, arena=None,
+    rho=0.0, modelos=None
+):
+    """Gera a previsão e recupera os históricos da partida."""
+
+    # Gera os atributos da partida futura.
+    atributos = gerar_atributos_partida_futura(
+        partidas=partidas,
+        estatisticas=estatisticas,
+        gols=gols,
+        cartoes=cartoes,
+        mandante=mandante,
+        visitante=visitante,
+        data=data,
+        rodada=rodada,
+        arena=arena
+    )
+
+    # Realiza a previsão utilizando os modelos salvos.
+    previsao = prever_partida(
+        atributos,
+        rho=rho,
+        modelos=modelos
+    )
+    # Recupera os três históricos.
+    historico_mandante, historico_visitante, historico_h2h = (
+        obter_historico_partida(
+            partidas=partidas,
+            mandante=mandante,
+            visitante=visitante,
+            data=data
+        )
+    )
+
+    return (
+        previsao,
+        historico_mandante,
+        historico_visitante,
+        historico_h2h
+    )
+
+def carregar_modelos_treinados():
+    """Carrega os modelos de gols previamente treinados."""
+
+    caminho_gm = C.ARQ_MODELO_MANDANTE.with_name(
+        C.ARQ_MODELO_MANDANTE.stem
+        + "_poisson"
+        + C.ARQ_MODELO_MANDANTE.suffix
+    )
+
+    caminho_gv = C.ARQ_MODELO_VISITANTE.with_name(
+        C.ARQ_MODELO_VISITANTE.stem
+        + "_poisson"
+        + C.ARQ_MODELO_VISITANTE.suffix
+    )
+
+    if not caminho_gm.exists() or not caminho_gv.exists():
+        raise FileNotFoundError(
+            "Modelos não encontrados. Execute primeiro: py -m src.regressao"
+        )
+
+    pacote_gm = carregar_modelo(caminho_gm)
+    pacote_gv = carregar_modelo(caminho_gv)
+
+    return pacote_gm, pacote_gv
+def main():
+
+    base, probabilidades_poisson = carregar_dados_e_prever_validacao()
+
+
+
+    print(f"Partidas carregadas: {len(base)}")
+
+
+    # Modelo para prever os gols do mandante.
+    resultado_gm = treinar_modelo(
+        base,
+        "gm",
+        C.ARQ_MODELO_MANDANTE
+    )
+
+    # Modelo para prever os gols do visitante.
+    resultado_gv = treinar_modelo(
+        base,
+        "gv",
+        C.ARQ_MODELO_VISITANTE
+    )
+
+    # Poisson tradicional.
+    probabilidades_poisson = gerar_probabilidades_partidas(
+        base,
+        resultado_gm,
+        resultado_gv,
+        rho=0.0
+    )
+
+    # Poisson com correcao Dixon-Coles.
+    probabilidades_dc = gerar_probabilidades_partidas(
+        base,
+        resultado_gm,
+        resultado_gv,
+        rho=-0.05
+    )
+
+    # Avalia e compara os dois metodos.
+    resultados = {}
+
+    for nome, probabilidades in [
+        ("POISSON", probabilidades_poisson),
+        ("DIXON-COLES", probabilidades_dc)
+    ]:
+
+        metricas = avaliar_probabilidades(
+            probabilidades["resultado_real"],
+            probabilidades[["P_M", "P_E", "P_V"]].to_numpy()
+        )
+
+        resultados[nome] = metricas
+
+        print(f"\n===== AVALIACAO: {nome} =====")
+
+        for metrica, valor in metricas.items():
+            print(f"{metrica}: {valor:.4f}")
+
+    # Exibe a comparacao entre os metodos.
+    comparacao = pd.DataFrame(resultados)
+
+    print("\n===== COMPARACAO: POISSON VS DIXON-COLES =====")
+    print(comparacao.round(4))
+
+    # Utiliza Dixon-Coles nas analises complementares.
+    probabilidades = probabilidades_poisson
+
+    avaliar_baseline_classificacao(
+        base,
+        probabilidades
+    )
     print("\n===== PROBABILIDADES DAS PARTIDAS - VALIDACAO =====")
 
     print(
         probabilidades.head(20).round(4).to_string(index=False)
     )
 
-    probabilidades_array = probabilidades[
-        ["P_M", "P_E", "P_V"]
-    ].to_numpy()
-
-    metricas = avaliar_probabilidades(
-        probabilidades["resultado_real"],
-        probabilidades_array
-    )
-
-    print("\n===== AVALIACAO DAS PROBABILIDADES =====")
-
-    for nome, valor in metricas.items():
-        print(f"{nome}: {valor:.4f}")
-
-
+    # Compara Dixon-Coles com o baseline.
     avaliar_baseline_classificacao(
         base,
         probabilidades
     )
-    analisar_zeros_e_vitorias_visitantes(base, probabilidades)
+
+    # Analisa os erros nos placares 0 x 0 e nas vitorias visitantes.
+    analisar_zeros_e_vitorias_visitantes(
+        base,
+        probabilidades
+    )
+
+    # Dados da partida futura.
+    dados_partida = {
+        "mandante": "São Paulo",
+        "visitante": "Corinthians",
+        "data": "2026-11-04",
+        "rodada": 34,
+        "arena": "Morumbi"
+    }
+
+    # Testa Poisson tradicional.
+    testar_previsao_futura(
+        **dados_partida,
+        rho=0.0
+    )
+
+    # Testa Poisson com correcao Dixon-Coles.
+    testar_previsao_futura(
+        **dados_partida,
+        rho=-0.05
+    )
+
 
 if __name__ == "__main__":
     main()

@@ -3,14 +3,12 @@
 
 import pandas as pd
 import numpy as np
+
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
     precision_recall_fscore_support,
     log_loss,
-    accuracy_score
-)
-from sklearn.metrics import (
     mean_absolute_error,
     mean_squared_error,
     r2_score
@@ -87,6 +85,7 @@ def avaliar_classificacao(
 
     return metricas, por_classe, matriz
 
+
 def avaliar_regressao(y_real, y_previsto):
     """
     Calcula as metricas de avaliacao da regressao.
@@ -100,11 +99,14 @@ def avaliar_regressao(y_real, y_previsto):
 
     return metricas
 
+
 def avaliar_probabilidades(y_real, probabilidades):
-    """Avalia a qualidade das probabilidades de classificacao."""
+    """
+    Avalia a qualidade das probabilidades de classificacao.
+    """
 
     # Ordem original das colunas: M, E, V.
-    classes = ["M", "E", "V"]
+    classes = CONFIGURACAO.CLASSES
 
     y_binario = pd.get_dummies(y_real).reindex(
         columns=classes,
@@ -113,14 +115,21 @@ def avaliar_probabilidades(y_real, probabilidades):
 
     previsoes = np.argmax(probabilidades, axis=1)
 
-    # O sklearn exige a ordem lexicografica: E, M, V.
-    probabilidades_log_loss = probabilidades[:, [1, 0, 2]]
+    # O sklearn exige a ordem lexicografica das classes.
+    ordem_log_loss = sorted(classes)
+
+    indices = [
+        classes.index(classe)
+        for classe in ordem_log_loss
+    ]
+
+    probabilidades_log_loss = probabilidades[:, indices]
 
     return {
         "Log Loss": log_loss(
             y_real,
             probabilidades_log_loss,
-            labels=["E", "M", "V"]
+            labels=ordem_log_loss
         ),
         "Brier Score": np.mean(
             np.sum((probabilidades - y_binario) ** 2, axis=1)
@@ -130,3 +139,4 @@ def avaliar_probabilidades(y_real, probabilidades):
             [classes[i] for i in previsoes]
         )
     }
+

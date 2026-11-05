@@ -4,10 +4,8 @@
 import pandas as pd
 
 from .persistencia import salvar_modelo
+from .atributos import obter_atributos_numericos
 from . import config as C
-from .modelos import criar_classificador, criar_baseline
-from .avaliacao import avaliar_classificacao
-
 
 def carregar_base():
     """Carrega a base de modelagem."""
@@ -29,25 +27,10 @@ def preparar_dados(base):
         base["resultado"].astype(str).str.strip().str.upper()
     )
 
-    ignorar = {
-        "ID",
-        "id",
-        "data",
-        "gm",
-        "gv",
-        "resultado"
-    }
-
-    colunas = [
-        coluna
-        for coluna in base.columns
-        if coluna not in ignorar
-        and pd.api.types.is_numeric_dtype(base[coluna])
-    ]
+    colunas = obter_atributos_numericos(base)
 
     if not colunas:
         raise ValueError("Nenhum atributo numerico encontrado.")
-
     X = base[colunas]
     y = base["resultado"]
 

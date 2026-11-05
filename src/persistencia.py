@@ -1,3 +1,4 @@
+
 """Funcoes para salvar e carregar modelos."""
 
 import joblib
@@ -6,7 +7,14 @@ from . import config as C
 
 
 def salvar_modelo(modelo, caminho=None):
-    """Salva um modelo treinado em disco."""
+    """
+    Salva um modelo treinado em disco.
+
+    Args:
+        modelo: Modelo treinado que sera persistido.
+        caminho: Caminho do arquivo. Utiliza o caminho padrao
+                 definido em config.py quando nao informado.
+    """
 
     caminho = caminho or C.ARQ_MODELO
 
@@ -21,11 +29,21 @@ def salvar_modelo(modelo, caminho=None):
 
 
 def carregar_modelo(caminho=None):
-    """Carrega um modelo previamente salvo."""
+    """
+    Carrega um modelo previamente salvo.
+
+    Args:
+        caminho: Caminho do arquivo do modelo.
+                 Utiliza o caminho padrao definido em config.py
+                 quando nao informado.
+
+    Returns:
+        Modelo carregado.
+    """
 
     caminho = caminho or C.ARQ_MODELO
 
-    if not caminho.exists():
+    if not caminho.is_file():
         raise FileNotFoundError(
             f"Modelo nao encontrado: {caminho}"
         )

@@ -12,6 +12,7 @@ ARQ_MODELO = MODELOS / "random_forest.joblib"
 ARQ_MODELO_MANDANTE = MODELOS / "random_forest_mandante.joblib"
 ARQ_MODELO_VISITANTE = MODELOS / "random_forest_visitante.joblib"
 
+
 ARQ_FULL = RAW / "campeonato-brasileiro-full.csv"
 ARQ_ESTAT = RAW / "campeonato-brasileiro-estatisticas-full.csv"
 ARQ_GOLS = RAW / "campeonato-brasileiro-gols.csv"

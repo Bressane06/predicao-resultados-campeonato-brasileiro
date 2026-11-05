@@ -15,6 +15,7 @@ from collections import defaultdict
 
 import numpy as np
 import pandas as pd
+from .data_loader import juntar_operacoes
 
 from . import config as CONFIGURACAO
 
@@ -269,6 +270,79 @@ def adicionar_partida_futura(partidas, mandante, visitante, data, rodada=None, a
         "gm": np.nan, "gv": np.nan, "resultado": np.nan}])
     return pd.concat([partidas, nova_partida], ignore_index=True)
 
+def gerar_atributos_partida_futura(
+    partidas,
+    estatisticas,
+    gols,
+    cartoes,
+    mandante,
+    visitante,
+    data,
+    rodada=None,
+    arena=None,
+    colunas_atributos=None
+):
+    """
+    Gera os atributos históricos de uma partida futura.
+
+    Retorna uma linha contendo os atributos necessários
+    para realizar a previsão dos gols do mandante e visitante.
+    """
+
+    partidas, estatisticas, gols, cartoes = juntar_operacoes(
+        salvar=False
+    )
+
+    print(partidas.columns.tolist())
+    print(partidas.head())
+
+    # Adiciona a partida sem resultado ao histórico.
+    partidas_atualizadas = adicionar_partida_futura(
+        partidas=partidas,
+        mandante=mandante,
+        visitante=visitante,
+        data=data,
+        rodada=rodada,
+        arena=arena
+    )
+
+    # Identifica o ID da partida adicionada.
+    id_partida = partidas_atualizadas["ID"].iloc[-1]
+
+    # Reconstrói a base utilizando os dados históricos.
+    base_atualizada = construir_base(
+        partidas_atualizadas,
+        estatisticas,
+        gols,
+        cartoes
+    )
+
+    # Recupera somente a partida futura.
+    atributos_futuros = base_atualizada[
+        base_atualizada["ID"] == id_partida
+    ].copy()
+
+    if atributos_futuros.empty:
+        raise ValueError(
+            "Nao foi possivel gerar os atributos da partida futura."
+        )
+
+    # Remove colunas que nao devem ser utilizadas como atributos.
+    atributos_futuros = atributos_futuros.drop(
+        columns=[
+            "ID", "id", "data", "gm", "gv", "resultado",
+            "mandante", "visitante", "arena"
+        ],
+        errors="ignore"
+    )
+
+    # Mantem exatamente as colunas utilizadas no treinamento.
+    if colunas_atributos is not None:
+        atributos_futuros = atributos_futuros.reindex(
+            columns=colunas_atributos
+        )
+
+    return atributos_futuros
 
 def gerar_base(salvar=True):
     from .data_loader import juntar_operacoes
@@ -292,3 +366,72 @@ if __name__ == "__main__":
             ["elo_mandante", "elo_visitante", "diferenca_elo"]
         ].describe()
     )
+
+        # Carrega os dados históricos.
+    partidas, estatisticas, gols, cartoes = juntar_operacoes(
+        salvar=False
+    )
+
+    # Gera os atributos de uma partida futura.
+    atributos_futuros = gerar_atributos_partida_futura(
+        partidas=partidas,
+        estatisticas=estatisticas,
+        gols=gols,
+        cartoes=cartoes,
+        mandante="Palmeiras",
+        visitante="Flamengo",
+        data="2026-11-15",
+        rodada=35,
+        arena="Allianz Parque"
+    )
+
+    print("\n===== ATRIBUTOS DA PARTIDA FUTURA =====")
+    print(atributos_futuros.T.to_string())
+
+    print("\nQuantidade de atributos:", atributos_futuros.shape[1])
+    print("Valores ausentes:", atributos_futuros.isna().sum().sum())
+
+
+def obter_historico_partida(partidas, mandante, visitante, data):
+    """
+    Recupera os últimos cinco jogos de cada equipe e os últimos
+    cinco confrontos diretos anteriores à data da partida.
+    """
+
+    data = pd.to_datetime(data)
+
+    # Considera somente partidas anteriores à data informada.
+    historico = partidas[
+        pd.to_datetime(partidas["data"]) < data
+    ].copy()
+
+    # Últimos cinco jogos do mandante, independentemente do mando.
+    jogos_mandante = historico[
+        (historico["mandante"] == mandante) |
+        (historico["visitante"] == mandante)
+    ].sort_values("data", ascending=False).head(5).copy()
+
+    # Últimos cinco jogos do visitante, independentemente do mando.
+    jogos_visitante = historico[
+        (historico["mandante"] == visitante) |
+        (historico["visitante"] == visitante)
+    ].sort_values("data", ascending=False).head(5).copy()
+
+    # Últimos cinco confrontos diretos, considerando os dois mandos.
+    confrontos = historico[
+        (
+            (historico["mandante"] == mandante) &
+            (historico["visitante"] == visitante)
+        ) |
+        (
+            (historico["mandante"] == visitante) &
+            (historico["visitante"] == mandante)
+        )
+    ].sort_values("data", ascending=False).head(5).copy()
+
+    # Exibe os jogos do mais antigo para o mais recente.
+    jogos_mandante = jogos_mandante.sort_values("data")
+    jogos_visitante = jogos_visitante.sort_values("data")
+    confrontos = confrontos.sort_values("data")
+
+    return jogos_mandante, jogos_visitante, confrontos

@@ -1,17 +1,24 @@
-# @Author: gabriel.bressane  # @Date: 2026-11-03 15:26:20  # @Last Modified by:   gabriel.bressane  # @Last Modified time: 2026-11-03 15:26:20 
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+
+"""Funcoes para criacao dos modelos de classificacao e regressao."""
+
+from sklearn.ensemble import (
+    RandomForestClassifier,
+    RandomForestRegressor,
+    HistGradientBoostingRegressor
+)
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.linear_model import PoissonRegressor
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import HistGradientBoostingRegressor
+
 from xgboost import XGBRegressor
+
 from . import config as C
 
 
 def criar_classificador():
-    """Cria um pipeline de classificação utilizando Random Forest."""
+    """Cria um classificador utilizando Random Forest."""
 
     return Pipeline([
         ("imputacao", SimpleImputer(strategy="median")),
@@ -24,13 +31,19 @@ def criar_classificador():
 
 
 def criar_baseline():
-    """Cria um classificador de referência."""
+    """Cria um classificador de referencia."""
 
     return DummyClassifier(strategy="most_frequent")
 
 
+def criar_baseline_probabilidades():
+    """Cria um baseline que utiliza as frequencias das classes."""
+
+    return DummyClassifier(strategy="prior")
+
+
 def criar_regressor():
-    """Cria um pipeline de regressão utilizando Random Forest."""
+    """Cria um regressor utilizando Random Forest."""
 
     return Pipeline([
         ("imputacao", SimpleImputer(strategy="median")),
@@ -43,44 +56,14 @@ def criar_regressor():
 
 
 def criar_baseline_regressao():
-    """Cria um regressor de referência que prevê a média."""
+    """Cria um regressor de referencia que prevê a media."""
 
     return DummyRegressor(strategy="mean")
 
-def criar_baseline_probabilidades():
-    return DummyClassifier(strategy="prior")
-
-def criar_regressor():
-    """
-    Cria um pipeline de regressao utilizando Random Forest.
-
-    O pipeline realiza:
-    1. Preenchimento de valores ausentes pela mediana.
-    2. Treinamento do Random Forest Regressor.
-    """
-
-    modelo = Pipeline([
-        ("imputacao", SimpleImputer(strategy="median")),
-
-        ("regressor", RandomForestRegressor(
-            n_estimators=C.N_ESTIMATORS,
-            random_state=C.SEED,
-            n_jobs=-1
-        ))
-    ])
-
-    return modelo
-
-
-def criar_baseline_regressao():
-    """
-    Cria um modelo de referencia que prevê
-    a media dos valores do treinamento.
-    """
-
-    return DummyRegressor(strategy="mean")
 
 def criar_regressor_poisson():
+    """Cria um regressor utilizando distribuicao de Poisson."""
+
     return Pipeline([
         ("imputacao", SimpleImputer(strategy="median")),
         ("escalonamento", StandardScaler()),
@@ -90,7 +73,10 @@ def criar_regressor_poisson():
         ))
     ])
 
+
 def criar_regressor_hist_gradient():
+    """Cria um regressor utilizando HistGradientBoosting."""
+
     return Pipeline([
         ("imputacao", SimpleImputer(strategy="median")),
         ("regressor", HistGradientBoostingRegressor(
@@ -102,7 +88,10 @@ def criar_regressor_hist_gradient():
         ))
     ])
 
+
 def criar_regressor_xgboost():
+    """Cria um regressor utilizando XGBoost."""
+
     return Pipeline([
         ("imputacao", SimpleImputer(strategy="median")),
         ("regressor", XGBRegressor(
