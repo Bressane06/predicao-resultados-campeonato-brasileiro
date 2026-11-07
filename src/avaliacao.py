@@ -93,6 +93,7 @@ def avaliar_regressao(y_real, y_previsto):
 
     metricas = {
         "MAE": mean_absolute_error(y_real, y_previsto),
+        "MSE": mean_squared_error(y_real, y_previsto),
         "RMSE": mean_squared_error(y_real, y_previsto) ** 0.5,
         "R2": r2_score(y_real, y_previsto)
     }

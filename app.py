@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
+from src import config as CONFIGURACAO
 from src.atributos import calcular_elo_final_temporadas
 from src.regressao import (
     carregar_modelos_treinados,
@@ -239,6 +240,80 @@ def exibir_previsao(
     st.divider()
 
     exibir_mapa_calor(previsao)
+
+
+# -----------------------------------------------------------------------------
+# Desempenho do modelo
+
+@st.cache_data(show_spinner="Carregando métricas do modelo...")
+def carregar_metricas():
+    """Le as tabelas de metricas geradas por: python -m src.regressao."""
+
+    regressao = pd.read_csv(
+        CONFIGURACAO.ARQ_METRICAS_REGRESSAO, encoding="utf-8-sig"
+    )
+    probabilidades = pd.read_csv(
+        CONFIGURACAO.ARQ_METRICAS_PROBABILIDADES, encoding="utf-8-sig"
+    )
+
+    return regressao, probabilidades
+
+
+def exibir_desempenho_modelo():
+    """Exibe as metricas de avaliacao do modelo na validacao e no teste."""
+
+    st.header("Desempenho do modelo")
+
+    if not (
+        CONFIGURACAO.ARQ_METRICAS_REGRESSAO.exists()
+        and CONFIGURACAO.ARQ_METRICAS_PROBABILIDADES.exists()
+    ):
+        st.info(
+            "As tabelas de métricas ainda não foram geradas. "
+            "Execute `python -m src.regressao` para criá-las."
+        )
+        return
+
+    regressao, probabilidades = carregar_metricas()
+
+    st.caption(
+        f"Treino com jogos até {CONFIGURACAO.ANO_FIM_TREINO}, validação em "
+        f"{CONFIGURACAO.ANO_VALIDACAO} e teste de "
+        f"{CONFIGURACAO.ANO_INICIO_TESTE} em diante (divisão cronológica)."
+    )
+
+    aba_gols, aba_resultado = st.tabs(
+        ["Previsão de gols (regressão)", "Probabilidades do resultado"]
+    )
+
+    with aba_gols:
+
+        st.caption(
+            "MAE, MSE e RMSE: quanto menores, melhor. R²: quanto mais "
+            "próximo de 1, melhor. O baseline sempre prevê a média de gols."
+        )
+
+        st.dataframe(
+            regressao,
+            height=altura_tabela(regressao),
+            hide_index=True,
+            use_container_width=True
+        )
+
+    with aba_resultado:
+
+        st.caption(
+            "Log Loss e Brier Score: quanto menores, melhor. O baseline usa "
+            "apenas a frequência histórica de vitória do mandante, empate "
+            "e vitória do visitante."
+        )
+
+        st.dataframe(
+            probabilidades,
+            height=altura_tabela(probabilidades),
+            hide_index=True,
+            use_container_width=True
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -653,6 +728,10 @@ def main():
 
             except Exception as erro:
                 st.error(f"Não foi possível gerar a previsão: {erro}")
+
+    st.divider()
+
+    exibir_desempenho_modelo()
 
     st.divider()
 

@@ -6,7 +6,7 @@ Os dados utilizados neste projeto foram obtidos no Kaggle:
 
 [Campeonato Brasileiro de Futebol](https://www.kaggle.com/datasets/adaoduque/campeonato-brasileiro-de-futebol)
 
-Os arquivos CSV devem ser baixados e colocados em `data/raw/`.
+Os arquivos CSV originais já estão em `data/raw/`. Para atualizar a base, baixe-os novamente do Kaggle e substitua-os.
 
 ---
 
@@ -20,7 +20,7 @@ Os dados utilizados neste projeto foram obtidos no Kaggle:
 
 [Campeonato Brasileiro de Futebol](https://www.kaggle.com/datasets/adaoduque/campeonato-brasileiro-de-futebol)
 
-Os arquivos CSV devem ser baixados e colocados em `data/raw/`.
+Os arquivos CSV originais já estão em `data/raw/`. Para atualizar a base, baixe-os novamente do Kaggle e substitua-os.
 
 ## Como executar
 
@@ -29,9 +29,11 @@ pip install -r requirements.txt
 
 python -m src.data_loader  # limpa data/raw/ e gera os CSVs limpos em data/processed/
 python -m src.atributos     # le os CSVs limpos e gera data/processed/base_modelagem.csv
-python -m src.regressao     # treina os modelos de gols e salva em modelos/
+python -m src.regressao     # treina os modelos de gols, salva em modelos/ e gera as tabelas de métricas (CSV)
 streamlit run app.py        # abre a aplicação
 ```
+
+O repositório já inclui os CSVs brutos (`data/raw/`), os modelos Poisson usados pelo app e as tabelas de métricas (`modelos/metricas_regressao.csv` e `modelos/metricas_probabilidades.csv`). Por isso, após `pip install -r requirements.txt`, basta executar `streamlit run app.py`. Os três primeiros comandos refazem todo o pipeline do zero; `data/processed/` e os Random Forest de comparação são gerados por eles e não são versionados.
 
 ---
 
@@ -225,7 +227,7 @@ $$
 \text{Brier} = \frac{1}{N}\sum_{n}\sum_{k \in \{M,E,V\}} (p_{n,k} - o_{n,k})^2
 $$
 
-Para os gols esperados usa-se MAE, RMSE e R². Quanto menores Log Loss e Brier, melhor.
+Para os gols esperados usa-se MAE, MSE, RMSE e R². Quanto menores Log Loss e Brier, melhor.
 
 ---
 

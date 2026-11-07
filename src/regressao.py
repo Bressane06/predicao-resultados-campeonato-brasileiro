@@ -333,6 +333,15 @@ def analisar_vies(y_real, y_previsto, nome):
         .round(3)
     )
 
+def salvar_tabela_metricas(tabela, caminho):
+    """Salva uma tabela de metricas em CSV (UTF-8 com BOM, abre no Excel)."""
+
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    tabela.round(4).to_csv(caminho, index=False, encoding="utf-8-sig")
+
+    print(f"Tabela de metricas salva em: {caminho}")
+
+
 def preparar_dados_regressao(base, alvo):
     """Separa os atributos (X) e o alvo numerico (y)."""
 
@@ -555,6 +564,36 @@ def treinar_modelo(base, alvo, caminho):
         metricas_baseline
     )
 
+    # Tabela de metricas de todos os modelos (validacao e teste).
+    nome_alvo = "Gols do mandante" if alvo == "gm" else "Gols do visitante"
+
+    modelos_avaliados = {
+        "Baseline (média)": (
+            previsoes_baseline_validacao, previsoes_baseline_teste
+        ),
+        "Random Forest": (previsoes_validacao, previsoes_teste),
+        "Poisson (usado no app)": (
+            previstos_validacao_poisson, previstos_teste_poisson
+        ),
+        "HistGradientBoosting": (pred_val_hist, pred_teste_hist),
+        "XGBoost": (pred_val_xgb, pred_teste_xgb),
+    }
+
+    linhas_metricas = []
+
+    for nome_modelo, (prev_validacao, prev_teste) in modelos_avaliados.items():
+        for conjunto, y_real, y_previsto in (
+            (f"Validação ({C.ANO_VALIDACAO})", y_validacao, prev_validacao),
+            (f"Teste ({C.ANO_INICIO_TESTE}+)", y_teste, prev_teste),
+        ):
+            linhas_metricas.append({
+                "Alvo": nome_alvo,
+                "Conjunto": conjunto,
+                "Modelo": nome_modelo,
+                "Partidas": len(y_real),
+                **avaliar_regressao(y_real, y_previsto)
+            })
+
     # Persistencia do Random Forest.
     salvar_modelo(modelo, caminho)
 
@@ -587,7 +626,8 @@ def treinar_modelo(base, alvo, caminho):
             previstos_teste_poisson,
             index=X_teste.index
         ),
-        "reais_teste": y_teste
+        "reais_teste": y_teste,
+        "metricas": pd.DataFrame(linhas_metricas)
     }
 
 def carregar_dados_historicos():
@@ -682,6 +722,7 @@ def main():
     )
 
     probabilidades_validacao = None
+    linhas_probabilidades = []
 
     # Avalia as probabilidades na validacao (2023) e no teste (2024+).
     for conjunto in ("validacao", "teste"):
@@ -733,14 +774,51 @@ def main():
         print(pd.DataFrame(resultados).round(4))
 
         # Compara o Poisson com o baseline nas mesmas partidas.
-        avaliar_baseline_classificacao(
+        comparacao_baseline = avaliar_baseline_classificacao(
             base,
             probabilidades_poisson,
             conjunto=conjunto
         )
 
+        rotulo_conjunto = (
+            f"Validação ({C.ANO_VALIDACAO})" if conjunto == "validacao"
+            else f"Teste ({C.ANO_INICIO_TESTE}+)"
+        )
+
+        for nome_modelo, metricas in (
+            ("Baseline (frequência das classes)",
+             comparacao_baseline["Baseline"].to_dict()),
+            ("Poisson (usado no app)", resultados["POISSON"]),
+            ("Dixon-Coles", resultados["DIXON-COLES"]),
+        ):
+            linhas_probabilidades.append({
+                "Conjunto": rotulo_conjunto,
+                "Modelo": nome_modelo,
+                "Partidas": len(probabilidades_poisson),
+                **metricas
+            })
+
         if conjunto == "validacao":
             probabilidades_validacao = probabilidades_poisson
+
+    # Tabelas finais de metricas (tambem exibidas no dashboard).
+    metricas_regressao = pd.concat(
+        [resultado_gm["metricas"], resultado_gv["metricas"]],
+        ignore_index=True
+    )
+
+    metricas_probabilidades = pd.DataFrame(linhas_probabilidades)
+
+    print("\n===== TABELA DE METRICAS - GOLS (REGRESSAO) =====")
+    print(metricas_regressao.round(4).to_string(index=False))
+
+    print("\n===== TABELA DE METRICAS - PROBABILIDADES M/E/V =====")
+    print(metricas_probabilidades.round(4).to_string(index=False))
+
+    salvar_tabela_metricas(metricas_regressao, C.ARQ_METRICAS_REGRESSAO)
+    salvar_tabela_metricas(
+        metricas_probabilidades, C.ARQ_METRICAS_PROBABILIDADES
+    )
 
     # Analises complementares (validacao, Poisson tradicional).
     print("\n===== PROBABILIDADES DAS PARTIDAS - VALIDACAO =====")

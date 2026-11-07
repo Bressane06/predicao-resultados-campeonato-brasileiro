@@ -1,0 +1,7 @@
+﻿Conjunto,Modelo,Partidas,Log Loss,Brier Score,Acuracia
+Validação (2023),Baseline (frequência das classes),380,1.0631,0.6415,0.4684
+Validação (2023),Poisson (usado no app),380,1.0421,0.6258,0.4605
+Validação (2023),Dixon-Coles,380,1.0435,0.6263,0.4605
+Teste (2024+),Baseline (frequência das classes),760,1.0478,0.6309,0.4882
+Teste (2024+),Poisson (usado no app),760,1.0125,0.6065,0.5053
+Teste (2024+),Dixon-Coles,760,1.0131,0.607,0.5039

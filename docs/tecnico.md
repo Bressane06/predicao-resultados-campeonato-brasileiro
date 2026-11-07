@@ -44,7 +44,7 @@ src/
   probabilidades.py     Matriz de placares (Poisson + Dixon-Coles) e agregação em M/E/V
   avaliacao.py          Métricas de classificação, regressão e probabilidades
   persistencia.py       Salvar/carregar modelos (joblib)
-modelos/                Modelos treinados (.joblib)
+modelos/                Modelos treinados (.joblib) e tabelas de métricas (.csv)
 docs/pesos.md           Explicação dos parâmetros de EWM, Elo e H2H
 ```
 
@@ -116,10 +116,11 @@ O fluxo, executado pelo app, é:
 
 ### 4.7 Avaliação (`avaliacao.py`)
 
-- **Gols:** MAE, RMSE e R².
+- **Gols:** MAE, MSE, RMSE e R².
 - **Probabilidades M/E/V:** Log Loss, Brier Score e acurácia, comparados com um baseline que usa a frequência histórica das classes.
 - **Classificação:** acurácia, precisão, recall e F1 (macro e por classe) e matriz de confusão.
 - **Análises complementares:** acerto de 0x0 e recall das vitórias do visitante.
+- **Tabelas de métricas:** `regressao.py` consolida as métricas de todos os modelos (baseline, Random Forest, Poisson, HistGradientBoosting e XGBoost), na validação e no teste, em `modelos/metricas_regressao.csv`, e as métricas das probabilidades M/E/V (baseline, Poisson e Dixon-Coles) em `modelos/metricas_probabilidades.csv`. As duas tabelas são exibidas na seção "Desempenho do modelo" do dashboard.
 
 ### 4.8 Interface (`app.py`)
 
@@ -136,7 +137,7 @@ python -m src.data_loader
 # 2. Ler os CSVs limpos e gerar a base de modelagem
 python -m src.atributos
 
-# 3. Treinar os modelos de gols (gera os .joblib em modelos/)
+# 3. Treinar os modelos de gols (gera os .joblib e as tabelas de métricas em modelos/)
 python -m src.regressao
 
 # 4. (Opcional) classificador M/E/V de referência
@@ -146,7 +147,7 @@ python -m src.treino
 streamlit run app.py
 ```
 
-Os arquivos `.csv` em `data/` e os `.joblib` estão no `.gitignore`: é preciso baixar os dados do Kaggle e rodar os passos 1 e 2 após clonar o repositório.
+O repositório versiona os CSVs brutos (`data/raw/`), os modelos Poisson (`*_poisson.joblib`, cerca de 8 KB cada) e as tabelas de métricas, então o app roda logo após clonar. O `.gitignore` exclui apenas `data/processed/` (regenerado pelos passos 1 e 2) e os Random Forest de comparação (24 a 31 MB cada, regenerados pelo passo 3).
 
 ## 6. Limitações e pontos de atenção
 
