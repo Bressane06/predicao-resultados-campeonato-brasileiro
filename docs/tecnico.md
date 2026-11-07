@@ -156,5 +156,6 @@ Os arquivos `.csv` em `data/` e os `.joblib` estão no `.gitignore`: é preciso 
 - O modelo não conhece escalações, lesões, suspensões, transferências ou calendário externo (copas).
 - A rodada e o ano entram como atributos numéricos, e a arena é descartada.
 - O estádio é pedido no app, mas não influencia a previsão.
+- A base histórica termina em dezembro de 2025 (última partida: 07/12/2025). Previsões para datas posteriores usam atributos (Elo, EWM, H2H) congelados nessa data, sem nenhum resultado de 2026. Para atualizar, substitua os CSVs em `data/raw/` e refaça o pipeline (`data_loader`, `atributos`, `regressao`).
 
 Desenvolvido por Gabriel Bressane, com apoio do Claude (Anthropic) na estruturação e refatoração do código.

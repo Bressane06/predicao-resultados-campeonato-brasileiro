@@ -244,6 +244,11 @@ def exibir_previsao(
 # -----------------------------------------------------------------------------
 # Classificação final por temporada
 
+def altura_tabela(tabela):
+    """Altura (px) para mostrar todas as linhas, sem barra de rolagem."""
+    return (len(tabela) + 1) * 35 + 3
+
+
 @st.cache_data(show_spinner="Calculando classificações finais...")
 def calcular_classificacoes(partidas):
     """Calcula a tabela final de cada temporada a partir dos resultados.
@@ -452,6 +457,7 @@ def exibir_ranking_geral(partidas):
 
         st.dataframe(
             ranking_elo,
+            height=altura_tabela(ranking_elo),
             hide_index=True,
             use_container_width=True
         )
@@ -466,6 +472,7 @@ def exibir_ranking_geral(partidas):
 
         st.dataframe(
             historica,
+            height=altura_tabela(historica),
             hide_index=True,
             use_container_width=True
         )
@@ -509,6 +516,7 @@ def exibir_classificacoes(partidas):
 
                 st.dataframe(
                     tabela,
+                    height=altura_tabela(tabela),
                     hide_index=True,
                     use_container_width=True
                 )
@@ -528,6 +536,7 @@ def exibir_classificacoes(partidas):
 
                 st.dataframe(
                     ranking,
+                    height=altura_tabela(ranking),
                     hide_index=True,
                     use_container_width=True
                 )

@@ -25,7 +25,11 @@ from src.atributos import (
     obter_historico_partida,
     obter_atributos_numericos
 )
-def avaliar_baseline_classificacao(base, probabilidades_poisson):
+def avaliar_baseline_classificacao(
+    base,
+    probabilidades_poisson,
+    conjunto="validacao"
+):
     """Compara o baseline de classificacao com as probabilidades de Poisson."""
 
     base = base.copy()
@@ -52,14 +56,17 @@ def avaliar_baseline_classificacao(base, probabilidades_poisson):
     modelo = criar_baseline_probabilidades()
     modelo.fit(X_treino, y_treino)
 
-    # Probabilidades previstas na validacao.
-    probabilidades = modelo.predict_proba(X_validacao)
+    # Conjunto avaliado: validacao (2023) ou teste (2024 em diante).
+    X_avaliacao = X_validacao if conjunto == "validacao" else X_teste
+
+    # Probabilidades previstas no conjunto avaliado.
+    probabilidades = modelo.predict_proba(X_avaliacao)
 
     # Organiza as colunas na ordem M, E, V.
     probabilidades = pd.DataFrame(
         probabilidades,
         columns=modelo.classes_,
-        index=X_validacao.index
+        index=X_avaliacao.index
     ).reindex(
         columns=C.CLASSES,
         fill_value=0
@@ -95,22 +102,30 @@ def avaliar_baseline_classificacao(base, probabilidades_poisson):
         "Poisson": metricas_poisson
     })
 
-    print("\n===== COMPARACAO: BASELINE VS POISSON =====")
+    print(f"\n===== COMPARACAO: BASELINE VS POISSON - {conjunto.upper()} =====")
     print(f"Partidas avaliadas: {len(indices)}")
     print(comparacao.round(4))
 
     return comparacao
 
 
-def gerar_probabilidades_partidas(base, resultado_gm, resultado_gv, rho=0.0):
+def gerar_probabilidades_partidas(
+    base,
+    resultado_gm,
+    resultado_gv,
+    rho=0.0,
+    conjunto="validacao"
+):
     """Combina as previsoes de GM e GV para calcular probabilidades."""
 
-    indices = resultado_gm["previsoes"].index.intersection(
-        resultado_gv["previsoes"].index
+    chave = "previsoes" if conjunto == "validacao" else "previsoes_teste"
+
+    indices = resultado_gm[chave].index.intersection(
+        resultado_gv[chave].index
     )
 
-    previsoes_gm = resultado_gm["previsoes"].loc[indices]
-    previsoes_gv = resultado_gv["previsoes"].loc[indices]
+    previsoes_gm = resultado_gm[chave].loc[indices]
+    previsoes_gv = resultado_gv[chave].loc[indices]
 
     partidas = []
 
@@ -307,6 +322,10 @@ def analisar_vies(y_real, y_previsto, nome):
     )
 
     print(f"\nANALISE DE VIES: {nome}")
+    print(
+        "(agrupado pelo gol real: o erro nos extremos reflete a "
+        "regressao a media, nao um defeito do modelo)"
+    )
 
     print(
         resultado.groupby("real")["erro"]
@@ -422,19 +441,6 @@ def treinar_modelo(base, alvo, caminho):
     previsoes_validacao = modelo.predict(X_validacao)
     previsoes_baseline_validacao = baseline.predict(X_validacao)
 
-    # Analise dos erros.
-    analisar_erros(
-        y_validacao,
-        previsoes_validacao,
-        alvo.upper()
-    )
-
-    analisar_vies(
-        y_validacao,
-        previsoes_validacao,
-        alvo.upper()
-    )
-
     modelo_poisson = criar_regressor_poisson()
 
     modelo_poisson.fit(X_treino, y_treino)
@@ -442,6 +448,19 @@ def treinar_modelo(base, alvo, caminho):
     # Validacao
     previstos_validacao_poisson = modelo_poisson.predict(
         X_validacao
+    )
+
+    # Analise dos erros do modelo Poisson (o usado no app).
+    analisar_erros(
+        y_validacao,
+        previstos_validacao_poisson,
+        f"{alvo.upper()} (Poisson)"
+    )
+
+    analisar_vies(
+        y_validacao,
+        previstos_validacao_poisson,
+        f"{alvo.upper()} (Poisson)"
     )
 
     metricas_validacao_poisson = avaliar_regressao(
@@ -563,37 +582,13 @@ def treinar_modelo(base, alvo, caminho):
             previstos_validacao_poisson,
             index=X_validacao.index
         ),
-        "reais": y_validacao
+        "reais": y_validacao,
+        "previsoes_teste": pd.Series(
+            previstos_teste_poisson,
+            index=X_teste.index
+        ),
+        "reais_teste": y_teste
     }
-
-def carregar_dados_e_prever_validacao():
-    """Carrega os dados, treina os modelos e gera previsões de validação."""
-
-    base = carregar_base()
-
-    # Modelo para prever os gols do mandante.
-    resultado_gm = treinar_modelo(
-        base,
-        "gm",
-        C.ARQ_MODELO_MANDANTE
-    )
-
-    # Modelo para prever os gols do visitante.
-    resultado_gv = treinar_modelo(
-        base,
-        "gv",
-        C.ARQ_MODELO_VISITANTE
-    )
-
-    # Gera probabilidades usando Poisson tradicional.
-    probabilidades_poisson = gerar_probabilidades_partidas(
-        base,
-        resultado_gm,
-        resultado_gv,
-        rho=0.0
-    )
-
-    return base, probabilidades_poisson
 
 def carregar_dados_historicos():
     """Carrega as bases históricas necessárias para a aplicação."""
@@ -669,92 +664,95 @@ def carregar_modelos_treinados():
     return pacote_gm, pacote_gv
 def main():
 
-    base, probabilidades_poisson = carregar_dados_e_prever_validacao()
-
-
+    base = carregar_base()
 
     print(f"Partidas carregadas: {len(base)}")
 
-
-    # Modelo para prever os gols do mandante.
+    # Cada modelo e treinado uma unica vez.
     resultado_gm = treinar_modelo(
         base,
         "gm",
         C.ARQ_MODELO_MANDANTE
     )
 
-    # Modelo para prever os gols do visitante.
     resultado_gv = treinar_modelo(
         base,
         "gv",
         C.ARQ_MODELO_VISITANTE
     )
 
-    # Poisson tradicional.
-    probabilidades_poisson = gerar_probabilidades_partidas(
-        base,
-        resultado_gm,
-        resultado_gv,
-        rho=0.0
-    )
+    probabilidades_validacao = None
 
-    # Poisson com correcao Dixon-Coles.
-    probabilidades_dc = gerar_probabilidades_partidas(
-        base,
-        resultado_gm,
-        resultado_gv,
-        rho=-0.05
-    )
+    # Avalia as probabilidades na validacao (2023) e no teste (2024+).
+    for conjunto in ("validacao", "teste"):
 
-    # Avalia e compara os dois metodos.
-    resultados = {}
+        nome_conjunto = conjunto.upper()
 
-    for nome, probabilidades in [
-        ("POISSON", probabilidades_poisson),
-        ("DIXON-COLES", probabilidades_dc)
-    ]:
-
-        metricas = avaliar_probabilidades(
-            probabilidades["resultado_real"],
-            probabilidades[["P_M", "P_E", "P_V"]].to_numpy()
+        # Poisson tradicional.
+        probabilidades_poisson = gerar_probabilidades_partidas(
+            base,
+            resultado_gm,
+            resultado_gv,
+            rho=0.0,
+            conjunto=conjunto
         )
 
-        resultados[nome] = metricas
+        # Poisson com correcao Dixon-Coles.
+        probabilidades_dc = gerar_probabilidades_partidas(
+            base,
+            resultado_gm,
+            resultado_gv,
+            rho=-0.05,
+            conjunto=conjunto
+        )
 
-        print(f"\n===== AVALIACAO: {nome} =====")
+        resultados = {}
 
-        for metrica, valor in metricas.items():
-            print(f"{metrica}: {valor:.4f}")
+        for nome, probabilidades in [
+            ("POISSON", probabilidades_poisson),
+            ("DIXON-COLES", probabilidades_dc)
+        ]:
 
-    # Exibe a comparacao entre os metodos.
-    comparacao = pd.DataFrame(resultados)
+            metricas = avaliar_probabilidades(
+                probabilidades["resultado_real"],
+                probabilidades[["P_M", "P_E", "P_V"]].to_numpy()
+            )
 
-    print("\n===== COMPARACAO: POISSON VS DIXON-COLES =====")
-    print(comparacao.round(4))
+            resultados[nome] = metricas
 
-    # Utiliza Dixon-Coles nas analises complementares.
-    probabilidades = probabilidades_poisson
+            print(f"\n===== AVALIACAO: {nome} - {nome_conjunto} =====")
 
-    avaliar_baseline_classificacao(
-        base,
-        probabilidades
-    )
+            for metrica, valor in metricas.items():
+                print(f"{metrica}: {valor:.4f}")
+
+        # Exibe a comparacao entre os metodos.
+        print(
+            f"\n===== COMPARACAO: POISSON VS DIXON-COLES - "
+            f"{nome_conjunto} ====="
+        )
+        print(pd.DataFrame(resultados).round(4))
+
+        # Compara o Poisson com o baseline nas mesmas partidas.
+        avaliar_baseline_classificacao(
+            base,
+            probabilidades_poisson,
+            conjunto=conjunto
+        )
+
+        if conjunto == "validacao":
+            probabilidades_validacao = probabilidades_poisson
+
+    # Analises complementares (validacao, Poisson tradicional).
     print("\n===== PROBABILIDADES DAS PARTIDAS - VALIDACAO =====")
 
     print(
-        probabilidades.head(20).round(4).to_string(index=False)
-    )
-
-    # Compara Dixon-Coles com o baseline.
-    avaliar_baseline_classificacao(
-        base,
-        probabilidades
+        probabilidades_validacao.head(20).round(4).to_string(index=False)
     )
 
     # Analisa os erros nos placares 0 x 0 e nas vitorias visitantes.
     analisar_zeros_e_vitorias_visitantes(
         base,
-        probabilidades
+        probabilidades_validacao
     )
 
     # Dados da partida futura.

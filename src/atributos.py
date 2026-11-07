@@ -367,9 +367,6 @@ def gerar_atributos_partida_futura(
         salvar=False
     )
 
-    print(partidas.columns.tolist())
-    print(partidas.head())
-
     # Adiciona a partida sem resultado ao histórico.
     partidas_atualizadas = adicionar_partida_futura(
         partidas=partidas,

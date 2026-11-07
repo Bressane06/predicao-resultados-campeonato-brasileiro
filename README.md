@@ -242,3 +242,4 @@ Suponha que os modelos devolvam **λ_M = 1,6** e **λ_V = 0,9**, com `ρ = 0`:
 - A previsão é probabilística. Mesmo um bom modelo erra muitos jogos, e a qualidade deve ser lida por Log Loss e Brier, não só por acurácia.
 - O Poisson assume gols independentes entre os times.
 - O modelo não conhece escalações, lesões, suspensões ou calendário de outras competições.
+- A base histórica termina em dezembro de 2025 (última partida: 07/12/2025). Previsões para datas posteriores usam o Elo, a forma recente e o histórico dos confrontos congelados nessa data: nenhum resultado de 2026 é considerado. Para atualizar, substitua os CSVs em `data/raw/` por uma versão mais recente do Kaggle e repita os passos de "Como executar".
