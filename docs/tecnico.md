@@ -92,6 +92,33 @@ Todos os modelos são `Pipeline` com imputação por mediana (valores ausentes s
 
 Os modelos Poisson são salvos como pacote `{modelo, colunas_atributos, alvo}` em `modelos/random_forest_mandante_poisson.joblib` e `modelos/random_forest_visitante_poisson.joblib`. Guardar as colunas garante que, na previsão, os atributos sejam reordenados exatamente como no treino.
 
+### 4.4.1 Treinamento e hiperparâmetros
+
+**Como o treino funciona.** Nenhum dos modelos é uma rede neural, então não existem épocas. Cada modelo é ajustado com um único `.fit()` nos jogos de treino (2003 a 2022, 8.025 partidas), sem validação durante o ajuste e sem *early stopping*. Há um modelo para os gols do mandante (`gm`) e outro para os do visitante (`gv`). Cada execução de `python -m src.regressao` faz 10 ajustes (5 modelos × 2 alvos), além dos ajustes triviais do baseline de classificação usados na avaliação das probabilidades.
+
+O que se repete *dentro* de cada ajuste depende do algoritmo:
+
+| Modelo | Repetição interna |
+|---|---|
+| Poisson (usado no app) | O solver L-BFGS itera até convergir. `max_iter=5000` é apenas um teto: na última execução convergiu em 43 iterações (mandante) e 42 (visitante). |
+| Random Forest | 100 árvores independentes. |
+| HistGradientBoosting | 500 rodadas de boosting (árvores em sequência). |
+| XGBoost | 500 árvores em sequência. |
+
+**Hiperparâmetros.** Todos os modelos (exceto o baseline) começam com `SimpleImputer(strategy="median")`, e a entrada tem 67 atributos numéricos. Os valores abaixo estão em `modelos.py`.
+
+| Modelo | Parâmetros definidos | Padrões relevantes |
+|---|---|---|
+| Poisson (app) | `StandardScaler` + `PoissonRegressor(alpha=0.01, max_iter=5000)` | solver `lbfgs`, `tol=1e-4`, intercepto, ligação log. O `alpha` (regularização L2) é bem menor que o padrão (1,0). |
+| Random Forest | `n_estimators=100`, `random_state=42`, `n_jobs=-1` | árvores sem limite de profundidade, `min_samples_leaf=1`, `bootstrap=True` |
+| HistGradientBoosting | `max_iter=500`, `learning_rate=0.01`, `max_leaf_nodes=15`, `l2_regularization=1.0`, `random_state=42` | `early_stopping="auto"` só liga com mais de 10.000 amostras, então não atua com 8.025 |
+| XGBoost | `n_estimators=500`, `learning_rate=0.03`, `max_depth=3`, `min_child_weight=5`, `subsample=0.8`, `colsample_bytree=0.8`, `reg_lambda=1.0`, `objective="reg:squarederror"`, `random_state=42`, `n_jobs=-1` | — |
+| Baseline | `DummyRegressor(strategy="mean")` | sempre prevê a média de gols |
+
+**Escolha dos hiperparâmetros.** Os valores são fixos e foram definidos manualmente: o código não faz busca em grade, busca aleatória nem validação cruzada. Portanto os modelos não foram otimizados. A validação é cronológica (2023 para comparar os modelos e 2024 em diante como teste final). O Poisson foi escolhido como modelo de produção porque seu desempenho é muito próximo ao do HistGradientBoosting e do XGBoost (ver `modelos/metricas_regressao.csv`), além de ser adequado a contagens de gols, simples de interpretar e leve (cerca de 8 KB por arquivo, contra dezenas de MB do Random Forest).
+
+**Reprodutibilidade.** Todas as sementes são fixas (`random_state=42`). Mesmo assim, o resultado de modelos de boosting (HistGradientBoosting e XGBoost) pode variar na terceira ou quarta casa decimal entre máquinas e versões de bibliotecas. As tabelas em `modelos/` refletem a última execução do treino.
+
 ### 4.5 Distribuição de placares (`probabilidades.py`)
 
 Dados λ_M e λ_V:
@@ -155,8 +182,5 @@ O repositório versiona os CSVs brutos (`data/raw/`), os modelos Poisson (`*_poi
 - Estatísticas detalhadas (chutes, posse, gols por minuto, cartões) só existem a partir de certo ano; antes disso os atributos ficam ausentes e são imputados.
 - O Poisson assume independência entre os gols dos dois times; o ajuste Dixon-Coles corrige só parcialmente.
 - O modelo não conhece escalações, lesões, suspensões, transferências ou calendário externo (copas).
-- A rodada e o ano entram como atributos numéricos, e a arena é descartada.
-- O estádio é pedido no app, mas não influencia a previsão.
+- A rodada e o ano entram como atributos numéricos.
 - A base histórica termina em dezembro de 2025 (última partida: 07/12/2025). Previsões para datas posteriores usam atributos (Elo, EWM, H2H) congelados nessa data, sem nenhum resultado de 2026. Para atualizar, substitua os CSVs em `data/raw/` e refaça o pipeline (`data_loader`, `atributos`, `regressao`).
-
-Desenvolvido por Gabriel Bressane, com apoio do Claude (Anthropic) na estruturação e refatoração do código.

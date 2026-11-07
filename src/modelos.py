@@ -69,7 +69,7 @@ def criar_regressor_poisson():
         ("escalonamento", StandardScaler()),
         ("regressor", PoissonRegressor(
             alpha=0.01,
-            max_iter=5000
+            max_iter=10000
         ))
     ])
 
