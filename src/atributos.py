@@ -85,6 +85,39 @@ def calcular_atributos_clube(historico_clubes):
 # -----------------------------------------------------------------------------
 # Elo
 
+def _regredir_elo(classificacao_elo):
+    """Regride todos os ratings em direção à média (início de um novo ano)."""
+
+    for clube in list(classificacao_elo):
+        classificacao_elo[clube] = (
+            CONFIGURACAO.ELO_INICIAL
+            + (1 - CONFIGURACAO.ELO_REGRESSAO_ANUAL)
+            * (classificacao_elo[clube] - CONFIGURACAO.ELO_INICIAL)
+        )
+
+
+def _variacao_elo(elo_mandante, elo_visitante, gm, gv):
+    """Variação do Elo do mandante (e, com sinal oposto, do visitante)."""
+
+    probabilidade_esperada = 1 / (
+        1 + 10 ** (
+            -(elo_mandante + CONFIGURACAO.ELO_VANTAGEM_MANDANTE
+              - elo_visitante) / 400
+        )
+    )
+
+    resultado_obtido = (
+        1.0 if gm > gv
+        else (0.5 if gm == gv else 0.0)
+    )
+
+    return (
+        CONFIGURACAO.ELO_K
+        * (np.log(abs(gm - gv) + 1) + 1)
+        * (resultado_obtido - probabilidade_esperada)
+    )
+
+
 def calcular_classificacao_elo(partidas):
     """Calcula a classificação Elo pré-jogo dos mandantes e visitantes.
     Regride os ratings em direção à média a cada nova temporada."""
@@ -98,12 +131,7 @@ def calcular_classificacao_elo(partidas):
     for partida in partidas.sort_values(["data", "ID"]).itertuples():
         if partida.ano != ano_atual:
             if ano_atual is not None:
-                for clube in list(classificacao_elo):
-                    classificacao_elo[clube] = (
-                        CONFIGURACAO.ELO_INICIAL
-                        + (1 - CONFIGURACAO.ELO_REGRESSAO_ANUAL)
-                        * (classificacao_elo[clube] - CONFIGURACAO.ELO_INICIAL)
-                    )
+                _regredir_elo(classificacao_elo)
 
             ano_atual = partida.ano
 
@@ -115,22 +143,8 @@ def calcular_classificacao_elo(partidas):
         )
 
         if pd.notna(partida.gm):
-            probabilidade_esperada = 1 / (
-                1 + 10 ** (
-                    -(elo_mandante + CONFIGURACAO.ELO_VANTAGEM_MANDANTE
-                      - elo_visitante) / 400
-                )
-            )
-
-            resultado_obtido = (
-                1.0 if partida.gm > partida.gv
-                else (0.5 if partida.gm == partida.gv else 0.0)
-            )
-
-            variacao_elo = (
-                CONFIGURACAO.ELO_K
-                * (np.log(abs(partida.gm - partida.gv) + 1) + 1)
-                * (resultado_obtido - probabilidade_esperada)
+            variacao_elo = _variacao_elo(
+                elo_mandante, elo_visitante, partida.gm, partida.gv
             )
 
             classificacao_elo[partida.mandante] += variacao_elo
@@ -139,6 +153,66 @@ def calcular_classificacao_elo(partidas):
     return pd.DataFrame(
         registros_elo,
         columns=["ID", "elo_mandante", "elo_visitante"]
+    )
+
+
+def calcular_elo_final_temporadas(partidas):
+    """Elo de cada clube no início e no fim de cada temporada.
+
+    Usa exatamente a mesma regra do Elo do modelo (K, vantagem do mandante,
+    regressão à média). A temporada termina quando há uma pausa maior que
+    60 dias até o próximo jogo. Retorna um DataFrame com as colunas
+    temporada (ano do primeiro jogo), clube, elo_inicial e elo_final.
+    """
+
+    jogos = partidas.dropna(subset=["gm", "gv"]).copy()
+    jogos["data"] = pd.to_datetime(jogos["data"])
+    jogos = jogos.sort_values(["data", "ID"]).reset_index(drop=True)
+
+    pausa = jogos["data"].shift(-1) - jogos["data"]
+    fim_temporada = ((pausa.dt.days > 60) | pausa.isna()).to_numpy()
+
+    classificacao_elo = defaultdict(
+        lambda: CONFIGURACAO.ELO_INICIAL
+    )
+
+    registros, ano_atual = [], None
+    elo_inicial, temporada_ano = {}, None
+
+    for i, partida in enumerate(jogos.itertuples()):
+        if partida.ano != ano_atual:
+            if ano_atual is not None:
+                _regredir_elo(classificacao_elo)
+
+            ano_atual = partida.ano
+
+        if temporada_ano is None:
+            temporada_ano = partida.data.year
+
+        elo_mandante = classificacao_elo[partida.mandante]
+        elo_visitante = classificacao_elo[partida.visitante]
+
+        elo_inicial.setdefault(partida.mandante, elo_mandante)
+        elo_inicial.setdefault(partida.visitante, elo_visitante)
+
+        variacao_elo = _variacao_elo(
+            elo_mandante, elo_visitante, partida.gm, partida.gv
+        )
+
+        classificacao_elo[partida.mandante] += variacao_elo
+        classificacao_elo[partida.visitante] -= variacao_elo
+
+        if fim_temporada[i]:
+            for clube, inicial in elo_inicial.items():
+                registros.append(
+                    (temporada_ano, clube, inicial, classificacao_elo[clube])
+                )
+
+            elo_inicial, temporada_ano = {}, None
+
+    return pd.DataFrame(
+        registros,
+        columns=["temporada", "clube", "elo_inicial", "elo_final"]
     )
 
 
@@ -345,8 +419,9 @@ def gerar_atributos_partida_futura(
     return atributos_futuros
 
 def gerar_base(salvar=True):
-    from .data_loader import juntar_operacoes
-    partidas, estatisticas, gols, cartoes = juntar_operacoes(salvar)
+    # Le os CSVs limpos de data/processed/ (gerados por: python -m src.data_loader).
+    from .data_loader import carregar_dados_limpos
+    partidas, estatisticas, gols, cartoes = carregar_dados_limpos()
     base = construir_base(partidas, estatisticas, gols, cartoes)
     if salvar:
         base.to_csv(CONFIGURACAO.ARQ_BASE, index=False)

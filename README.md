@@ -27,7 +27,8 @@ Os arquivos CSV devem ser baixados e colocados em `data/raw/`.
 ```bash
 pip install -r requirements.txt
 
-python -m src.atributos     # limpa os dados e gera data/processed/base_modelagem.csv
+python -m src.data_loader  # limpa data/raw/ e gera os CSVs limpos em data/processed/
+python -m src.atributos     # le os CSVs limpos e gera data/processed/base_modelagem.csv
 python -m src.regressao     # treina os modelos de gols e salva em modelos/
 streamlit run app.py        # abre a aplicação
 ```

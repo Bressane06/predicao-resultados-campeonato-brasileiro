@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
+from src.atributos import calcular_elo_final_temporadas
 from src.regressao import (
     carregar_modelos_treinados,
     carregar_dados_historicos,
@@ -241,6 +242,298 @@ def exibir_previsao(
 
 
 # -----------------------------------------------------------------------------
+# Classificação final por temporada
+
+@st.cache_data(show_spinner="Calculando classificações finais...")
+def calcular_classificacoes(partidas):
+    """Calcula a tabela final de cada temporada a partir dos resultados.
+
+    Retorna {ano_de_inicio: (tabela, jogos_na_base, jogos_esperados)}.
+    """
+
+    jogos = partidas.dropna(subset=["gm", "gv"]).copy()
+    jogos["data"] = pd.to_datetime(jogos["data"])
+    jogos = jogos.sort_values(["data", "ID"]).reset_index(drop=True)
+
+    # Uma nova temporada começa após uma pausa longa entre jogos. Isso evita
+    # misturar anos de calendário (a temporada 2020 terminou em fev/2021).
+    jogos["temporada"] = (jogos["data"].diff().dt.days.fillna(0) > 60).cumsum()
+
+    mandantes = pd.DataFrame({
+        "temporada": jogos["temporada"],
+        "Clube": jogos["mandante"],
+        "GP": jogos["gm"],
+        "GC": jogos["gv"],
+        "V": (jogos["resultado"] == "M").astype(int),
+        "E": (jogos["resultado"] == "E").astype(int),
+        "D": (jogos["resultado"] == "V").astype(int),
+    })
+
+    visitantes = pd.DataFrame({
+        "temporada": jogos["temporada"],
+        "Clube": jogos["visitante"],
+        "GP": jogos["gv"],
+        "GC": jogos["gm"],
+        "V": (jogos["resultado"] == "V").astype(int),
+        "E": (jogos["resultado"] == "E").astype(int),
+        "D": (jogos["resultado"] == "M").astype(int),
+    })
+
+    resultados = pd.concat([mandantes, visitantes], ignore_index=True)
+    resultados["J"] = 1
+
+    classificacoes = {}
+
+    for temporada, dados in resultados.groupby("temporada"):
+
+        tabela = (
+            dados.groupby("Clube")[["J", "V", "E", "D", "GP", "GC"]]
+            .sum()
+            .reset_index()
+        )
+
+        tabela["P"] = tabela["V"] * 3 + tabela["E"]
+        tabela["SG"] = tabela["GP"] - tabela["GC"]
+        tabela["Aprov. (%)"] = (tabela["P"] / (tabela["J"] * 3) * 100).round(1)
+
+        # Critérios: pontos, vitórias, saldo de gols e gols pró.
+        tabela = tabela.sort_values(
+            ["P", "V", "SG", "GP"],
+            ascending=False
+        ).reset_index(drop=True)
+
+        tabela.insert(0, "Pos", tabela.index + 1)
+        tabela = tabela[
+            ["Pos", "Clube", "P", "J", "V", "E", "D",
+             "GP", "GC", "SG", "Aprov. (%)"]
+        ]
+
+        ano = int(jogos.loc[jogos["temporada"] == temporada, "data"].min().year)
+        n_clubes = len(tabela)
+        classificacoes[ano] = (
+            tabela,
+            int((jogos["temporada"] == temporada).sum()),
+            n_clubes * (n_clubes - 1),
+        )
+
+    return dict(sorted(classificacoes.items(), reverse=True))
+
+
+@st.cache_data(show_spinner="Calculando ranking Elo...")
+def calcular_ranking_elo(partidas):
+    """Ranking Elo (mesmo sistema usado pelo modelo) no fim de cada temporada.
+
+    Retorna {ano_de_inicio: tabela}.
+    """
+
+    elo = calcular_elo_final_temporadas(partidas)
+
+    rankings = {}
+
+    for ano, dados in elo.groupby("temporada"):
+
+        tabela = dados.sort_values("elo_final", ascending=False)
+        tabela = tabela.reset_index(drop=True)
+
+        tabela["variacao"] = tabela["elo_final"] - tabela["elo_inicial"]
+        tabela.insert(0, "Pos", tabela.index + 1)
+        tabela = tabela.rename(columns={
+            "clube": "Clube",
+            "elo_final": "Elo final",
+            "elo_inicial": "Elo inicial",
+            "variacao": "Variação",
+        })
+
+        rankings[int(ano)] = tabela[
+            ["Pos", "Clube", "Elo final", "Elo inicial", "Variação"]
+        ].round(1)
+
+    return rankings
+
+
+@st.cache_data(show_spinner="Calculando ranking geral...")
+def calcular_ranking_geral(partidas):
+    """Ranking geral de todos os clubes da base.
+
+    Retorna (ranking_elo, tabela_historica).
+    """
+
+    # Elo: resumo de cada clube ao longo de todas as temporadas.
+    elo = calcular_elo_final_temporadas(partidas).sort_values("temporada")
+
+    ranking_elo = elo.groupby("clube").agg(
+        pico=("elo_final", "max"),
+        medio=("elo_final", "mean"),
+        ultima=("temporada", "max"),
+        temporadas=("temporada", "size"),
+    )
+
+    linhas_pico = elo.loc[elo.groupby("clube")["elo_final"].idxmax()]
+    ranking_elo["ano_pico"] = linhas_pico.set_index("clube")["temporada"]
+
+    ranking_elo["atual"] = (
+        elo.groupby("clube").tail(1).set_index("clube")["elo_final"]
+    )
+
+    ranking_elo = ranking_elo.sort_values("pico", ascending=False)
+    ranking_elo = ranking_elo.reset_index()
+    ranking_elo.insert(0, "Pos", ranking_elo.index + 1)
+    ranking_elo = ranking_elo.rename(columns={
+        "clube": "Clube",
+        "pico": "Pico de Elo",
+        "ano_pico": "Temporada do pico",
+        "medio": "Elo médio",
+        "atual": "Elo na última temporada",
+        "ultima": "Última temporada",
+        "temporadas": "Temporadas",
+    })[[
+        "Pos", "Clube", "Pico de Elo", "Temporada do pico", "Elo médio",
+        "Elo na última temporada", "Última temporada", "Temporadas"
+    ]]
+    ranking_elo[["Pico de Elo", "Elo médio", "Elo na última temporada"]] = (
+        ranking_elo[["Pico de Elo", "Elo médio", "Elo na última temporada"]]
+        .round(1)
+    )
+
+    # Tabela histórica: soma das classificações finais de todas as temporadas.
+    tabelas = []
+    for tabela, _, _ in calcular_classificacoes(partidas).values():
+        parcial = tabela.copy()
+        parcial["Títulos"] = (parcial["Pos"] == 1).astype(int)
+        parcial["Temporadas"] = 1
+        tabelas.append(parcial)
+
+    historica = (
+        pd.concat(tabelas, ignore_index=True)
+        .groupby("Clube")[
+            ["P", "J", "V", "E", "D", "GP", "GC", "Títulos", "Temporadas"]
+        ]
+        .sum()
+        .reset_index()
+    )
+
+    historica["SG"] = historica["GP"] - historica["GC"]
+    historica["Aprov. (%)"] = (
+        historica["P"] / (historica["J"] * 3) * 100
+    ).round(1)
+
+    historica = historica.sort_values(
+        ["P", "V", "SG", "GP"],
+        ascending=False
+    ).reset_index(drop=True)
+
+    historica.insert(0, "Pos", historica.index + 1)
+    historica = historica[[
+        "Pos", "Clube", "P", "J", "V", "E", "D", "GP", "GC", "SG",
+        "Aprov. (%)", "Títulos", "Temporadas"
+    ]]
+
+    return ranking_elo, historica
+
+
+def exibir_ranking_geral(partidas):
+    """Exibe o ranking geral dos clubes, do melhor ao pior."""
+
+    st.header("Ranking geral dos clubes")
+
+    ranking_elo, historica = calcular_ranking_geral(partidas)
+
+    aba_elo, aba_historica = st.tabs(
+        ["Ranking Elo geral", "Tabela histórica (pontos)"]
+    )
+
+    with aba_elo:
+
+        st.caption(
+            "Ordenado pelo maior Elo que o clube alcançou ao fim de uma "
+            "temporada. O Elo médio e a quantidade de temporadas ajudam a "
+            "comparar clubes com históricos de tamanhos diferentes."
+        )
+
+        st.dataframe(
+            ranking_elo,
+            hide_index=True,
+            use_container_width=True
+        )
+
+    with aba_historica:
+
+        st.caption(
+            "Soma dos resultados de todas as temporadas da base. "
+            "Clubes com mais temporadas acumulam mais pontos; "
+            "o aproveitamento permite comparar clubes de forma justa."
+        )
+
+        st.dataframe(
+            historica,
+            hide_index=True,
+            use_container_width=True
+        )
+
+
+def exibir_classificacoes(partidas):
+    """Exibe a classificação final de todas as temporadas da base."""
+
+    st.header("Classificação final dos campeonatos")
+
+    st.caption(
+        "Calculada a partir dos resultados da base histórica. "
+        "Critérios de desempate: vitórias, saldo de gols e gols pró."
+    )
+
+    classificacoes = calcular_classificacoes(partidas)
+    rankings_elo = calcular_ranking_elo(partidas)
+
+    for indice, (ano, (tabela, jogos, esperados)) in enumerate(
+        classificacoes.items()
+    ):
+
+        campeao = tabela.loc[0, "Clube"]
+
+        with st.expander(
+            f"{ano} — Campeão: {campeao}",
+            expanded=(indice == 0)
+        ):
+
+            aba_pontos, aba_elo = st.tabs(
+                ["Classificação por pontos", "Ranking Elo"]
+            )
+
+            with aba_pontos:
+
+                if jogos != esperados:
+                    st.caption(
+                        f"Atenção: a base tem {jogos} de {esperados} jogos "
+                        "desta temporada."
+                    )
+
+                st.dataframe(
+                    tabela,
+                    hide_index=True,
+                    use_container_width=True
+                )
+
+            with aba_elo:
+
+                st.caption(
+                    "Elo ao fim da temporada, calculado com a mesma regra "
+                    "usada pelo modelo (clube novo começa em 1500)."
+                )
+
+                ranking = rankings_elo[ano].copy()
+                posicao_pontos = dict(zip(tabela["Clube"], tabela["Pos"]))
+                ranking["Pos. por pontos"] = ranking["Clube"].map(
+                    posicao_pontos
+                )
+
+                st.dataframe(
+                    ranking,
+                    hide_index=True,
+                    use_container_width=True
+                )
+
+
+# -----------------------------------------------------------------------------
 # Interface principal
 
 def main():
@@ -351,6 +644,14 @@ def main():
 
             except Exception as erro:
                 st.error(f"Não foi possível gerar a previsão: {erro}")
+
+    st.divider()
+
+    exibir_ranking_geral(partidas)
+
+    st.divider()
+
+    exibir_classificacoes(partidas)
 
 
 if __name__ == "__main__":

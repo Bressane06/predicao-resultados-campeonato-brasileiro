@@ -165,6 +165,32 @@ def juntar_operacoes(salvar: bool = True):
 
     return partidas, estatisticas, gols, cartoes
 
+def carregar_dados_limpos():
+    """Le os CSVs limpos gerados por juntar_operacoes(salvar=True)."""
+
+    arquivos = {
+        "partidas": "partidas_limpas.csv",
+        "estatisticas": "estatisticas_limpas.csv",
+        "gols": "gols_limpos.csv",
+        "cartoes": "cartoes_limpos.csv",
+    }
+
+    for arquivo in arquivos.values():
+        if not (CONFIGURACAO.PROCESSED / arquivo).is_file():
+            raise FileNotFoundError(
+                f"Arquivo limpo nao encontrado: {CONFIGURACAO.PROCESSED / arquivo}. "
+                "Execute primeiro: python -m src.data_loader"
+            )
+
+    partidas = pd.read_csv(
+        CONFIGURACAO.PROCESSED / arquivos["partidas"], parse_dates=["data"]
+    )
+    estatisticas = pd.read_csv(CONFIGURACAO.PROCESSED / arquivos["estatisticas"])
+    gols = pd.read_csv(CONFIGURACAO.PROCESSED / arquivos["gols"])
+    cartoes = pd.read_csv(CONFIGURACAO.PROCESSED / arquivos["cartoes"])
+
+    return partidas, estatisticas, gols, cartoes
+
 # juntando tudo
 if __name__ == "__main__":
     p, e, g, c = juntar_operacoes()

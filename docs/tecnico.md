@@ -130,16 +130,19 @@ App Streamlit com formulário (mandante, visitante, data, rodada, estádio). Exi
 ```bash
 pip install -r requirements.txt
 
-# 1. Limpar os dados e gerar a base de modelagem
+# 1. Limpar data/raw/ e gerar os CSVs limpos em data/processed/
+python -m src.data_loader
+
+# 2. Ler os CSVs limpos e gerar a base de modelagem
 python -m src.atributos
 
-# 2. Treinar os modelos de gols (gera os .joblib em modelos/)
+# 3. Treinar os modelos de gols (gera os .joblib em modelos/)
 python -m src.regressao
 
-# 3. (Opcional) classificador M/E/V de referência
+# 4. (Opcional) classificador M/E/V de referência
 python -m src.treino
 
-# 4. Abrir o app
+# 5. Abrir o app
 streamlit run app.py
 ```
 
