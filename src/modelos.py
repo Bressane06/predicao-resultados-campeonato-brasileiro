@@ -10,6 +10,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.linear_model import PoissonRegressor
+from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 
 from xgboost import XGBRegressor
@@ -69,7 +70,53 @@ def criar_regressor_poisson():
         ("escalonamento", StandardScaler()),
         ("regressor", PoissonRegressor(
             alpha=0.01,
-            max_iter=10000
+            max_iter=5000
+        ))
+    ])
+
+
+def criar_regressor_xgboost_poisson():
+    """Cria o modelo de producao: XGBoost com perda de Poisson.
+
+    Arvores de decisao em sequencia (gradient boosting) que minimizam o
+    desvio de Poisson. A previsao e o numero esperado de gols (lambda),
+    sempre positivo.
+    """
+
+    return Pipeline([
+        ("imputacao", SimpleImputer(strategy="median")),
+        ("regressor", XGBRegressor(
+            n_estimators=500,
+            learning_rate=0.03,
+            max_depth=3,
+            min_child_weight=5,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_lambda=1.0,
+            objective="count:poisson",
+            random_state=C.SEED,
+            n_jobs=-1
+        ))
+    ])
+
+
+def criar_regressor_mlp():
+    """Cria uma rede neural (MLP) para comparacao.
+
+    Usa early stopping: o treino para sozinho quando a pontuacao de uma
+    fracao reservada do treino deixa de melhorar.
+    """
+
+    return Pipeline([
+        ("imputacao", SimpleImputer(strategy="median")),
+        ("escalonamento", StandardScaler()),
+        ("regressor", MLPRegressor(
+            hidden_layer_sizes=(32, 16),
+            alpha=1.0,
+            early_stopping=True,
+            n_iter_no_change=20,
+            max_iter=500,
+            random_state=C.SEED
         ))
     ])
 

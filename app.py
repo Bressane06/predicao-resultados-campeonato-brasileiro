@@ -20,6 +20,14 @@ st.set_page_config(
     layout="wide"
 )
 
+# -----------------------------------------------------------------------------
+# Configuração da página
+
+st.set_page_config(
+    page_title="Previsão de Resultados - Brasileirão",
+    page_icon="img/brasileirao.png",
+    layout="wide"
+)
 
 # -----------------------------------------------------------------------------
 # Carregamento dos dados

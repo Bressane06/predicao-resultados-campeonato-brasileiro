@@ -12,7 +12,7 @@ Os arquivos CSV originais já estão em `data/raw/`. Para atualizar a base, baix
 
 Aplicação que prevê, para uma partida do Brasileirão, os **gols esperados de cada time**, as **probabilidades de vitória do mandante, empate e vitória do visitante** e os **placares mais prováveis**.
 
-A previsão combina engenharia de atributos sobre o histórico de partidas, regressão de Poisson e uma matriz de probabilidade de placares. Os detalhes de implementação estão em [docs/tecnico.md](docs/tecnico.md).
+A previsão combina engenharia de atributos sobre o histórico de partidas, um modelo de árvores (XGBoost com perda de Poisson) e uma matriz de probabilidade de placares. Os detalhes de implementação estão em [docs/tecnico.md](docs/tecnico.md).
 
 ## Fonte de dados
 
@@ -33,7 +33,7 @@ python -m src.regressao     # treina os modelos de gols, salva em modelos/ e ger
 streamlit run app.py        # abre a aplicação
 ```
 
-O repositório já inclui os CSVs brutos (`data/raw/`), os modelos Poisson usados pelo app e as tabelas de métricas (`modelos/metricas_regressao.csv` e `modelos/metricas_probabilidades.csv`). Por isso, após `pip install -r requirements.txt`, basta executar `streamlit run app.py`. Os três primeiros comandos refazem todo o pipeline do zero; `data/processed/` e os Random Forest de comparação são gerados por eles e não são versionados.
+O repositório já inclui os CSVs brutos (`data/raw/`), os modelos XGBoost usados pelo app e as tabelas de métricas (`modelos/metricas_regressao.csv` e `modelos/metricas_probabilidades.csv`). Por isso, após `pip install -r requirements.txt`, basta executar `streamlit run app.py`. Os três primeiros comandos refazem todo o pipeline do zero; `data/processed/` é gerado por eles e não é versionado. O treino salva em `modelos/` apenas os modelos usados pelo app.
 
 ---
 
@@ -63,8 +63,8 @@ Do clique em "Prever resultado" até a tela final:
                                ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ 4. Modelos de gols (regressao.py)                            │
-│    Poisson GM  → λ_M  (gols esperados do mandante)           │
-│    Poisson GV  → λ_V  (gols esperados do visitante)          │
+│    XGBoost GM  → λ_M  (gols esperados do mandante)           │
+│    XGBoost GV  → λ_V  (gols esperados do visitante)          │
 └──────────────────────────────┬───────────────────────────────┘
                                ▼
 ┌──────────────────────────────────────────────────────────────┐
@@ -90,7 +90,7 @@ Do clique em "Prever resultado" até a tela final:
 1. **Seleção dos times.** O usuário escolhe o mandante; a lista de visitantes exclui o mandante escolhido. Informa também data, rodada e estádio.
 2. **Validação.** A previsão é bloqueada se o estádio estiver vazio ou se a data não for posterior ao último jogo da base. O motivo é que todo atributo é calculado só com o passado.
 3. **Geração de atributos.** `gerar_atributos_partida_futura` insere o jogo como uma linha sem placar e roda o mesmo pipeline do treino. Como não há resultado, o jogo não entra nos históricos, e seus atributos usam apenas partidas anteriores. O estádio é descartado nessa etapa.
-4. **Previsão dos gols.** Os dois modelos Poisson recebem os mesmos atributos e devolvem λ_M e λ_V. Valores negativos são truncados em zero.
+4. **Previsão dos gols.** Os dois modelos XGBoost recebem os mesmos atributos e devolvem λ_M e λ_V. Valores negativos são truncados em zero.
 5. **Distribuição dos placares.** Os λ geram uma matriz de probabilidades de 0 a 10 gols por time.
 6. **Probabilidades finais.** As células da matriz são somadas por tipo de resultado.
 7. **Apresentação.** O app mostra os gols esperados, as probabilidades, os 4 placares mais prováveis, os gráficos, o mapa de calor da matriz e o histórico recente.
@@ -162,21 +162,24 @@ w_i = 0{,}8^{\,i}
 \text{h2h\_aproveitamento} = \frac{\sum_i w_i \, p_i}{3 \sum_i w_i}
 $$
 
-### 5. Regressão de Poisson
+### 5. Modelo de gols: gradient boosting com perda de Poisson
 
-Cada time faz `G` gols, com `G ~ Poisson(λ)`. O modelo liga os atributos ao λ por uma função logarítmica, que mantém λ sempre positivo:
-
-$$
-\lambda = \exp\!\big(\beta_0 + \boldsymbol{\beta}^\top \tilde{\mathbf{x}}\big)
-$$
-
-em que `x̃` são os atributos padronizados (`StandardScaler`). Os coeficientes minimizam o desvio de Poisson com regularização L2 (`alpha = 0,01`):
+Cada time faz `G` gols, com `G ~ Poisson(λ)`. O modelo de produção é um **XGBoost** (árvores de decisão em sequência) que prevê λ. A previsão passa por uma exponencial, o que mantém λ sempre positivo:
 
 $$
-\min_{\beta} \; \frac{1}{2n}\sum_{k=1}^{n} 2\Big(y_k \ln\frac{y_k}{\mu_k} - y_k + \mu_k\Big) \;+\; \frac{\alpha}{2}\,\lVert \boldsymbol{\beta} \rVert^2
+\lambda = \exp\!\big(F(\mathbf{x})\big)
+\qquad
+F(\mathbf{x}) = \sum_{m=1}^{500} \eta \, h_m(\mathbf{x})
 $$
 
-São treinados dois modelos independentes: um para os gols do mandante (λ_M) e outro para os do visitante (λ_V).
+em que `h_m` é a m-ésima árvore (profundidade máxima 3) e `η = 0,03` é a taxa de aprendizado. Cada árvore nova é ajustada para reduzir o erro que as anteriores deixaram, minimizando o negativo da log-verossimilhança de Poisson (`objective = "count:poisson"`), com regularização L2 nas folhas:
+
+$$
+\min \; \sum_{k=1}^{n} \big(\mu_k - y_k \ln \mu_k\big) \;+\; \sum_{m} \Omega(h_m)
+\qquad \mu_k = \exp\!\big(F(\mathbf{x}_k)\big)
+$$
+
+São treinados dois modelos independentes: um para os gols do mandante (λ_M) e outro para os do visitante (λ_V). O Poisson linear (GLM), a rede neural (MLP), o Random Forest e o HistGradientBoosting são treinados apenas para comparação.
 
 ### 6. Matriz de placares
 
@@ -237,7 +240,7 @@ Suponha que os modelos devolvam **λ_M = 1,6** e **λ_V = 0,9**, com `ρ = 0`:
 
 - P(0 x 0) = e^(−1,6) · e^(−0,9) = e^(−2,5) ≈ **8,2%**
 - Placares mais prováveis: 1 x 0 (13,1%), 1 x 1 (11,8%), 2 x 0 (10,5%) e 2 x 1 (9,5%)
-- **P(M) ≈ 53,8%**, **P(E) ≈ 25,0%**, **P(V) ≈ 21,1%**
+- **P(M) ≈ 53,8%**, **P(E) ≈ 25,0%**, **P(V) ≈ 21,2%**
 
 ## Limitações
 

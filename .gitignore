@@ -2,8 +2,9 @@
 # Os CSVs brutos em data/raw/ SAO versionados (necessarios para o app e para o treino).
 data/processed/
 
-# Modelos de comparacao (Random Forest), pesados (24 a 31 MB cada) e nao usados pelo app.
-# Os modelos Poisson (*_poisson.joblib, ~8 KB) e as tabelas de metricas ficam versionados.
+# Random Forest: random_forest.joblib vem do classificador de referencia (src.treino);
+# os outros dois foram gerados por versoes antigas do treino. Nenhum e usado pelo app.
+# Os modelos de producao (xgboost_poisson_*.joblib, ~600 KB) e as tabelas de metricas ficam versionados.
 modelos/random_forest.joblib
 modelos/random_forest_mandante.joblib
 modelos/random_forest_visitante.joblib

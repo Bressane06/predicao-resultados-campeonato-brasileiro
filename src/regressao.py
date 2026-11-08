@@ -1,6 +1,7 @@
 
 """Treinamento e avaliacao dos modelos de regressao."""
 
+import numpy as np
 import pandas as pd
 
 from .probabilidades import (
@@ -12,6 +13,8 @@ from .modelos import (
     criar_regressor,
     criar_baseline_regressao,
     criar_regressor_poisson,
+    criar_regressor_xgboost_poisson,
+    criar_regressor_mlp,
     criar_regressor_hist_gradient,
     criar_regressor_xgboost,
     criar_baseline_probabilidades
@@ -99,10 +102,10 @@ def avaliar_baseline_classificacao(
     # Exibe a comparacao entre os metodos.
     comparacao = pd.DataFrame({
         "Baseline": metricas_baseline,
-        "Poisson": metricas_poisson
+        "Modelo do app": metricas_poisson
     })
 
-    print(f"\n===== COMPARACAO: BASELINE VS POISSON - {conjunto.upper()} =====")
+    print(f"\n===== COMPARACAO: BASELINE VS MODELO DO APP - {conjunto.upper()} =====")
     print(f"Partidas avaliadas: {len(indices)}")
     print(comparacao.round(4))
 
@@ -416,8 +419,12 @@ def analisar_zeros_e_vitorias_visitantes(base, probabilidades):
     }
 
 
-def treinar_modelo(base, alvo, caminho):
-    """Treina, avalia e salva um modelo de regressao."""
+def treinar_modelo(base, alvo, caminho_producao):
+    """Treina e avalia os modelos de regressao.
+
+    O modelo de producao (usado no app) e o XGBoost com perda de Poisson,
+    o unico salvo em disco. Os demais servem apenas de comparacao.
+    """
 
     X, y, base_filtrada = preparar_dados_regressao(base, alvo)
 
@@ -450,49 +457,50 @@ def treinar_modelo(base, alvo, caminho):
     previsoes_validacao = modelo.predict(X_validacao)
     previsoes_baseline_validacao = baseline.predict(X_validacao)
 
-    modelo_poisson = criar_regressor_poisson()
+    # Modelo de producao: XGBoost com perda de Poisson.
+    modelo_producao = criar_regressor_xgboost_poisson()
 
-    modelo_poisson.fit(X_treino, y_treino)
+    modelo_producao.fit(X_treino, y_treino)
 
     # Validacao
-    previstos_validacao_poisson = modelo_poisson.predict(
+    previstos_validacao_producao = modelo_producao.predict(
         X_validacao
     )
 
-    # Analise dos erros do modelo Poisson (o usado no app).
+    # Analise dos erros do modelo de producao (o usado no app).
     analisar_erros(
         y_validacao,
-        previstos_validacao_poisson,
-        f"{alvo.upper()} (Poisson)"
+        previstos_validacao_producao,
+        f"{alvo.upper()} (XGBoost Poisson)"
     )
 
     analisar_vies(
         y_validacao,
-        previstos_validacao_poisson,
-        f"{alvo.upper()} (Poisson)"
+        previstos_validacao_producao,
+        f"{alvo.upper()} (XGBoost Poisson)"
     )
 
-    metricas_validacao_poisson = avaliar_regressao(
+    metricas_validacao_producao = avaliar_regressao(
         y_validacao,
-        previstos_validacao_poisson
+        previstos_validacao_producao
     )
 
-    print(f"\n===== POISSON REGRESSOR - {alvo.upper()} - VALIDACAO =====")
+    print(f"\n===== XGBOOST COUNT:POISSON (APP) - {alvo.upper()} - VALIDACAO =====")
 
-    for metrica, valor in metricas_validacao_poisson.items():
+    for metrica, valor in metricas_validacao_producao.items():
         print(f"{metrica}: {valor:.4f}")
 
     # Teste
-    previstos_teste_poisson = modelo_poisson.predict(X_teste)
+    previstos_teste_producao = modelo_producao.predict(X_teste)
 
-    metricas_teste_poisson = avaliar_regressao(
+    metricas_teste_producao = avaliar_regressao(
         y_teste,
-        previstos_teste_poisson
+        previstos_teste_producao
     )
 
-    print(f"\n===== POISSON REGRESSOR - {alvo.upper()} - TESTE =====")
+    print(f"\n===== XGBOOST COUNT:POISSON (APP) - {alvo.upper()} - TESTE =====")
 
-    for metrica, valor in metricas_teste_poisson.items():
+    for metrica, valor in metricas_teste_producao.items():
         print(f"{metrica}: {valor:.4f}")
 
     metricas = avaliar_regressao(
@@ -511,18 +519,44 @@ def treinar_modelo(base, alvo, caminho):
     print("Validacao:", avaliar_regressao(y_validacao, pred_val_hist))
     print("Teste:", avaliar_regressao(y_teste, pred_teste_hist))
 
-    # XGBoost
+    # XGBoost com erro quadratico (comparacao)
     modelo_xgb = criar_regressor_xgboost()
     modelo_xgb.fit(X_treino, y_treino)
 
     pred_val_xgb = modelo_xgb.predict(X_validacao)
     pred_teste_xgb = modelo_xgb.predict(X_teste)
 
-    print("\n===== XGBOOST -", alvo.upper(), "- VALIDACAO =====")
+    print("\n===== XGBOOST (ERRO QUADRATICO) -", alvo.upper(), "- VALIDACAO =====")
     print(avaliar_regressao(y_validacao, pred_val_xgb))
 
-    print("\n===== XGBOOST -", alvo.upper(), "- TESTE =====")
+    print("\n===== XGBOOST (ERRO QUADRATICO) -", alvo.upper(), "- TESTE =====")
     print(avaliar_regressao(y_teste, pred_teste_xgb))
+
+    # Poisson linear (GLM), comparacao
+    modelo_glm = criar_regressor_poisson()
+    modelo_glm.fit(X_treino, y_treino)
+
+    pred_val_glm = modelo_glm.predict(X_validacao)
+    pred_teste_glm = modelo_glm.predict(X_teste)
+
+    print("\n===== POISSON LINEAR (GLM) -", alvo.upper(), "=====")
+    print("Validacao:", avaliar_regressao(y_validacao, pred_val_glm))
+    print("Teste:", avaliar_regressao(y_teste, pred_teste_glm))
+
+    # Rede neural (MLP), comparacao
+    modelo_mlp = criar_regressor_mlp()
+    modelo_mlp.fit(X_treino, y_treino)
+
+    pred_val_mlp = modelo_mlp.predict(X_validacao)
+    pred_teste_mlp = modelo_mlp.predict(X_teste)
+
+    print("\n===== REDE NEURAL (MLP) -", alvo.upper(), "=====")
+    print(
+        "Epocas ate o early stopping:",
+        modelo_mlp.named_steps["regressor"].n_iter_
+    )
+    print("Validacao:", avaliar_regressao(y_validacao, pred_val_mlp))
+    print("Teste:", avaliar_regressao(y_teste, pred_teste_mlp))
 
     exibir_resultados(
         f"RANDOM FOREST - {alvo.upper()} - VALIDACAO",
@@ -572,11 +606,13 @@ def treinar_modelo(base, alvo, caminho):
             previsoes_baseline_validacao, previsoes_baseline_teste
         ),
         "Random Forest": (previsoes_validacao, previsoes_teste),
-        "Poisson (usado no app)": (
-            previstos_validacao_poisson, previstos_teste_poisson
+        "XGBoost count:poisson (usado no app)": (
+            previstos_validacao_producao, previstos_teste_producao
         ),
+        "Poisson linear (GLM)": (pred_val_glm, pred_teste_glm),
+        "Rede neural (MLP)": (pred_val_mlp, pred_teste_mlp),
         "HistGradientBoosting": (pred_val_hist, pred_teste_hist),
-        "XGBoost": (pred_val_xgb, pred_teste_xgb),
+        "XGBoost (erro quadrático)": (pred_val_xgb, pred_teste_xgb),
     }
 
     linhas_metricas = []
@@ -594,39 +630,48 @@ def treinar_modelo(base, alvo, caminho):
                 **avaliar_regressao(y_real, y_previsto)
             })
 
-    # Persistencia do Random Forest.
-    salvar_modelo(modelo, caminho)
-
-    # Define o caminho do modelo Poisson.
-    caminho_poisson = caminho.with_name(
-        caminho.stem + "_poisson" + caminho.suffix
-    )
-
-    # Salva o modelo Poisson junto com seus metadados.
-    pacote_poisson = {
-        "modelo": modelo_poisson,
+    # Salva o modelo de producao junto com seus metadados.
+    pacote_producao = {
+        "modelo": modelo_producao,
         "colunas_atributos": X_treino.columns.tolist(),
         "alvo": alvo
     }
 
-    salvar_modelo(pacote_poisson, caminho_poisson)
+    salvar_modelo(pacote_producao, caminho_producao)
+
+    # Previsoes dos modelos de comparacao (lambda minimo de 0,05 para
+    # permitir o calculo das probabilidades com a rede neural).
+    def serie(valores, indice):
+        return pd.Series(np.clip(valores, 0.05, None), index=indice)
+
+    alternativas = {
+        "Poisson linear (GLM)": {
+            "previsoes": serie(pred_val_glm, X_validacao.index),
+            "previsoes_teste": serie(pred_teste_glm, X_teste.index),
+        },
+        "Rede neural (MLP)": {
+            "previsoes": serie(pred_val_mlp, X_validacao.index),
+            "previsoes_teste": serie(pred_teste_mlp, X_teste.index),
+        },
+    }
+
     # Retorna os modelos e as previsoes da validacao.
     return {
         "modelo": modelo,
-        "modelo_poisson": modelo_poisson,
-        "caminho": caminho,
-        "caminho_poisson": caminho_poisson,
+        "modelo_producao": modelo_producao,
+        "caminho_producao": caminho_producao,
         "colunas_atributos": X_treino.columns.tolist(),
         "previsoes": pd.Series(
-            previstos_validacao_poisson,
+            previstos_validacao_producao,
             index=X_validacao.index
         ),
         "reais": y_validacao,
         "previsoes_teste": pd.Series(
-            previstos_teste_poisson,
+            previstos_teste_producao,
             index=X_teste.index
         ),
         "reais_teste": y_teste,
+        "alternativas": alternativas,
         "metricas": pd.DataFrame(linhas_metricas)
     }
 
@@ -681,17 +726,8 @@ def prever_partida_interativa(
 def carregar_modelos_treinados():
     """Carrega os modelos de gols previamente treinados."""
 
-    caminho_gm = C.ARQ_MODELO_MANDANTE.with_name(
-        C.ARQ_MODELO_MANDANTE.stem
-        + "_poisson"
-        + C.ARQ_MODELO_MANDANTE.suffix
-    )
-
-    caminho_gv = C.ARQ_MODELO_VISITANTE.with_name(
-        C.ARQ_MODELO_VISITANTE.stem
-        + "_poisson"
-        + C.ARQ_MODELO_VISITANTE.suffix
-    )
+    caminho_gm = C.ARQ_MODELO_PRODUCAO_MANDANTE
+    caminho_gv = C.ARQ_MODELO_PRODUCAO_VISITANTE
 
     if not caminho_gm.exists() or not caminho_gv.exists():
         raise FileNotFoundError(
@@ -712,13 +748,13 @@ def main():
     resultado_gm = treinar_modelo(
         base,
         "gm",
-        C.ARQ_MODELO_MANDANTE
+        C.ARQ_MODELO_PRODUCAO_MANDANTE
     )
 
     resultado_gv = treinar_modelo(
         base,
         "gv",
-        C.ARQ_MODELO_VISITANTE
+        C.ARQ_MODELO_PRODUCAO_VISITANTE
     )
 
     probabilidades_validacao = None
@@ -729,7 +765,7 @@ def main():
 
         nome_conjunto = conjunto.upper()
 
-        # Poisson tradicional.
+        # Modelo de producao com distribuicao de Poisson (rho = 0).
         probabilidades_poisson = gerar_probabilidades_partidas(
             base,
             resultado_gm,
@@ -738,7 +774,7 @@ def main():
             conjunto=conjunto
         )
 
-        # Poisson com correcao Dixon-Coles.
+        # Modelo de producao com correcao Dixon-Coles.
         probabilidades_dc = gerar_probabilidades_partidas(
             base,
             resultado_gm,
@@ -750,7 +786,7 @@ def main():
         resultados = {}
 
         for nome, probabilidades in [
-            ("POISSON", probabilidades_poisson),
+            ("XGBOOST COUNT:POISSON (APP)", probabilidades_poisson),
             ("DIXON-COLES", probabilidades_dc)
         ]:
 
@@ -768,7 +804,7 @@ def main():
 
         # Exibe a comparacao entre os metodos.
         print(
-            f"\n===== COMPARACAO: POISSON VS DIXON-COLES - "
+            f"\n===== COMPARACAO: MODELO DO APP, RHO 0 VS DIXON-COLES - "
             f"{nome_conjunto} ====="
         )
         print(pd.DataFrame(resultados).round(4))
@@ -785,12 +821,39 @@ def main():
             else f"Teste ({C.ANO_INICIO_TESTE}+)"
         )
 
-        for nome_modelo, metricas in (
+        linhas_modelos = [
             ("Baseline (frequência das classes)",
              comparacao_baseline["Baseline"].to_dict()),
-            ("Poisson (usado no app)", resultados["POISSON"]),
-            ("Dixon-Coles", resultados["DIXON-COLES"]),
-        ):
+            ("XGBoost count:poisson (usado no app)",
+             resultados["XGBOOST COUNT:POISSON (APP)"]),
+            ("Dixon-Coles (sobre o modelo do app)",
+             resultados["DIXON-COLES"]),
+        ]
+
+        # Modelos de comparacao: Poisson linear e rede neural.
+        for nome_alt in resultado_gm["alternativas"]:
+
+            probabilidades_alt = gerar_probabilidades_partidas(
+                base,
+                resultado_gm["alternativas"][nome_alt],
+                resultado_gv["alternativas"][nome_alt],
+                rho=0.0,
+                conjunto=conjunto
+            )
+
+            metricas_alt = avaliar_probabilidades(
+                probabilidades_alt["resultado_real"],
+                probabilidades_alt[["P_M", "P_E", "P_V"]].to_numpy()
+            )
+
+            print(f"\n===== AVALIACAO: {nome_alt.upper()} - {nome_conjunto} =====")
+
+            for metrica, valor in metricas_alt.items():
+                print(f"{metrica}: {valor:.4f}")
+
+            linhas_modelos.append((nome_alt, metricas_alt))
+
+        for nome_modelo, metricas in linhas_modelos:
             linhas_probabilidades.append({
                 "Conjunto": rotulo_conjunto,
                 "Modelo": nome_modelo,

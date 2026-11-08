@@ -3,19 +3,27 @@ Gols do mandante,Validação (2023),Baseline (média),380,0.9948,1.4283,1.1951,-
 Gols do mandante,Teste (2024+),Baseline (média),760,0.9583,1.3868,1.1776,-0.0045
 Gols do mandante,Validação (2023),Random Forest,380,0.9698,1.4086,1.1868,0.0023
 Gols do mandante,Teste (2024+),Random Forest,760,0.9077,1.321,1.1494,0.0431
-Gols do mandante,Validação (2023),Poisson (usado no app),380,0.9421,1.4004,1.1834,0.0081
-Gols do mandante,Teste (2024+),Poisson (usado no app),760,0.8883,1.3081,1.1437,0.0525
+Gols do mandante,Validação (2023),XGBoost count:poisson (usado no app),380,0.9476,1.3768,1.1734,0.0247
+Gols do mandante,Teste (2024+),XGBoost count:poisson (usado no app),760,0.8898,1.3022,1.1411,0.0568
+Gols do mandante,Validação (2023),Poisson linear (GLM),380,0.9421,1.4004,1.1834,0.0081
+Gols do mandante,Teste (2024+),Poisson linear (GLM),760,0.8883,1.3081,1.1437,0.0525
+Gols do mandante,Validação (2023),Rede neural (MLP),380,0.9462,1.3824,1.1758,0.0208
+Gols do mandante,Teste (2024+),Rede neural (MLP),760,0.8976,1.3203,1.1491,0.0436
 Gols do mandante,Validação (2023),HistGradientBoosting,380,0.9474,1.3724,1.1715,0.0279
 Gols do mandante,Teste (2024+),HistGradientBoosting,760,0.8909,1.3033,1.1416,0.0559
-Gols do mandante,Validação (2023),XGBoost,380,0.9534,1.3988,1.1827,0.0092
-Gols do mandante,Teste (2024+),XGBoost,760,0.8908,1.3024,1.1412,0.0566
+Gols do mandante,Validação (2023),XGBoost (erro quadrático),380,0.9534,1.3988,1.1827,0.0092
+Gols do mandante,Teste (2024+),XGBoost (erro quadrático),760,0.8908,1.3024,1.1412,0.0566
 Gols do visitante,Validação (2023),Baseline (média),380,0.7925,1.1892,1.0905,-0.0018
 Gols do visitante,Teste (2024+),Baseline (média),760,0.7378,1.013,1.0065,-0.0001
 Gols do visitante,Validação (2023),Random Forest,380,0.8503,1.2193,1.1042,-0.0272
 Gols do visitante,Teste (2024+),Random Forest,760,0.7857,1.0072,1.0036,0.0057
-Gols do visitante,Validação (2023),Poisson (usado no app),380,0.8275,1.1841,1.0882,0.0025
-Gols do visitante,Teste (2024+),Poisson (usado no app),760,0.7623,0.9949,0.9975,0.0177
+Gols do visitante,Validação (2023),XGBoost count:poisson (usado no app),380,0.8241,1.174,1.0835,0.011
+Gols do visitante,Teste (2024+),XGBoost count:poisson (usado no app),760,0.7619,0.9919,0.996,0.0207
+Gols do visitante,Validação (2023),Poisson linear (GLM),380,0.8275,1.1841,1.0882,0.0025
+Gols do visitante,Teste (2024+),Poisson linear (GLM),760,0.7623,0.9949,0.9975,0.0177
+Gols do visitante,Validação (2023),Rede neural (MLP),380,0.8211,1.1575,1.0759,0.0249
+Gols do visitante,Teste (2024+),Rede neural (MLP),760,0.7705,1.0138,1.0069,-0.0009
 Gols do visitante,Validação (2023),HistGradientBoosting,380,0.8309,1.1899,1.0908,-0.0024
 Gols do visitante,Teste (2024+),HistGradientBoosting,760,0.759,0.9926,0.9963,0.02
-Gols do visitante,Validação (2023),XGBoost,380,0.8311,1.1934,1.0924,-0.0054
-Gols do visitante,Teste (2024+),XGBoost,760,0.7683,0.9995,0.9998,0.0132
+Gols do visitante,Validação (2023),XGBoost (erro quadrático),380,0.8311,1.1934,1.0924,-0.0054
+Gols do visitante,Teste (2024+),XGBoost (erro quadrático),760,0.7683,0.9995,0.9998,0.0132

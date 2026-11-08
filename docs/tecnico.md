@@ -15,7 +15,7 @@ Em vez de classificar diretamente o resultado (M/E/V), o projeto segue a abordag
 
 Essa abordagem tem duas vantagens sobre um classificador direto: entrega a distribuição completa de placares (útil para 0x0, over/under etc.) e produz probabilidades coerentes entre si.
 
-O projeto também mantém um classificador Random Forest (M/E/V) e modelos alternativos de regressão (Random Forest, HistGradientBoosting, XGBoost) apenas como **comparação**. O app usa somente os modelos Poisson.
+O projeto também mantém um classificador Random Forest (M/E/V) e modelos alternativos de regressão (Poisson linear, rede neural, Random Forest, HistGradientBoosting e XGBoost com erro quadrático) apenas como **comparação**. O app usa o XGBoost com perda de Poisson.
 
 ## 2. Dados
 
@@ -86,38 +86,40 @@ A divisão é **cronológica**, nunca aleatória:
 
 Todos os modelos são `Pipeline` com imputação por mediana (valores ausentes são comuns nas estatísticas).
 
-- **Modelo de produção:** `PoissonRegressor` (alpha=0,01) com `StandardScaler`. Um modelo para `gm` e outro para `gv`.
-- **Comparação:** Random Forest, HistGradientBoosting e XGBoost, além de um `DummyRegressor` (média) como baseline.
+- **Modelo de produção:** `XGBRegressor` com `objective="count:poisson"` (árvores de decisão em sequência que minimizam o desvio de Poisson). Um modelo para `gm` e outro para `gv`.
+- **Comparação:** Poisson linear (`PoissonRegressor`), rede neural (`MLPRegressor`), Random Forest, HistGradientBoosting e XGBoost com erro quadrático, além de um `DummyRegressor` (média) como baseline.
 - **Classificador de referência:** Random Forest para M/E/V (`treino.py`), com baseline pela classe mais frequente.
 
-Os modelos Poisson são salvos como pacote `{modelo, colunas_atributos, alvo}` em `modelos/random_forest_mandante_poisson.joblib` e `modelos/random_forest_visitante_poisson.joblib`. Guardar as colunas garante que, na previsão, os atributos sejam reordenados exatamente como no treino.
+Os modelos de produção são salvos como pacote `{modelo, colunas_atributos, alvo}` em `modelos/xgboost_poisson_mandante.joblib` e `modelos/xgboost_poisson_visitante.joblib`. Guardar as colunas garante que, na previsão, os atributos sejam reordenados exatamente como no treino.
 
 ### 4.4.1 Treinamento e hiperparâmetros
 
-**Como o treino funciona.** Nenhum dos modelos é uma rede neural, então não existem épocas. Cada modelo é ajustado com um único `.fit()` nos jogos de treino (2003 a 2022, 8.025 partidas), sem validação durante o ajuste e sem *early stopping*. Há um modelo para os gols do mandante (`gm`) e outro para os do visitante (`gv`). Cada execução de `python -m src.regressao` faz 10 ajustes (5 modelos × 2 alvos), além dos ajustes triviais do baseline de classificação usados na avaliação das probabilidades.
-
-O que se repete *dentro* de cada ajuste depende do algoritmo:
+**Como o treino funciona.** Cada modelo é ajustado com um único `.fit()` nos jogos de treino (2003 a 2022, 8.025 partidas). Há um modelo para os gols do mandante (`gm`) e outro para os do visitante (`gv`), e cada execução de `python -m src.regressao` faz 14 ajustes (7 modelos × 2 alvos), além dos ajustes triviais do baseline de classificação usados na avaliação das probabilidades. Só a rede neural tem épocas: ela usa *early stopping* e, na última execução, parou em 43 épocas (mandante) e 36 (visitante). Nos demais, a repetição ocorre dentro do algoritmo:
 
 | Modelo | Repetição interna |
 |---|---|
-| Poisson (usado no app) | O solver L-BFGS itera até convergir. `max_iter=5000` é apenas um teto: na última execução convergiu em 43 iterações (mandante) e 42 (visitante). |
-| Random Forest | 100 árvores independentes. |
+| XGBoost `count:poisson` (usado no app) | 500 árvores em sequência, cada uma corrigindo o erro das anteriores. |
+| XGBoost (erro quadrático) | 500 árvores em sequência. |
 | HistGradientBoosting | 500 rodadas de boosting (árvores em sequência). |
-| XGBoost | 500 árvores em sequência. |
+| Random Forest | 100 árvores independentes. |
+| Poisson linear (GLM) | O solver L-BFGS itera até convergir. `max_iter=5000` é apenas um teto: na última execução convergiu em 43 iterações (mandante) e 42 (visitante). |
+| Rede neural (MLP) | Épocas até o *early stopping* (`n_iter_no_change=20`, teto de 500). |
 
 **Hiperparâmetros.** Todos os modelos (exceto o baseline) começam com `SimpleImputer(strategy="median")`, e a entrada tem 67 atributos numéricos. Os valores abaixo estão em `modelos.py`.
 
 | Modelo | Parâmetros definidos | Padrões relevantes |
 |---|---|---|
-| Poisson (app) | `StandardScaler` + `PoissonRegressor(alpha=0.01, max_iter=5000)` | solver `lbfgs`, `tol=1e-4`, intercepto, ligação log. O `alpha` (regularização L2) é bem menor que o padrão (1,0). |
+| XGBoost `count:poisson` (app) | `n_estimators=500`, `learning_rate=0.03`, `max_depth=3`, `min_child_weight=5`, `subsample=0.8`, `colsample_bytree=0.8`, `reg_lambda=1.0`, `objective="count:poisson"`, `random_state=42`, `n_jobs=-1` | A previsão é λ = exp(soma das árvores), sempre positivo. |
+| XGBoost (erro quadrático) | os mesmos, com `objective="reg:squarederror"` | — |
+| Poisson linear (GLM) | `StandardScaler` + `PoissonRegressor(alpha=0.01, max_iter=5000)` | solver `lbfgs`, `tol=1e-4`, intercepto, ligação log. O `alpha` (regularização L2) é bem menor que o padrão (1,0). |
+| Rede neural (MLP) | `StandardScaler` + `MLPRegressor(hidden_layer_sizes=(32, 16), alpha=1.0, early_stopping=True, n_iter_no_change=20, max_iter=500, random_state=42)` | ativação ReLU, otimizador Adam, erro quadrático (não Poisson). Para calcular probabilidades, λ é limitado a no mínimo 0,05. |
 | Random Forest | `n_estimators=100`, `random_state=42`, `n_jobs=-1` | árvores sem limite de profundidade, `min_samples_leaf=1`, `bootstrap=True` |
 | HistGradientBoosting | `max_iter=500`, `learning_rate=0.01`, `max_leaf_nodes=15`, `l2_regularization=1.0`, `random_state=42` | `early_stopping="auto"` só liga com mais de 10.000 amostras, então não atua com 8.025 |
-| XGBoost | `n_estimators=500`, `learning_rate=0.03`, `max_depth=3`, `min_child_weight=5`, `subsample=0.8`, `colsample_bytree=0.8`, `reg_lambda=1.0`, `objective="reg:squarederror"`, `random_state=42`, `n_jobs=-1` | — |
 | Baseline | `DummyRegressor(strategy="mean")` | sempre prevê a média de gols |
 
-**Escolha dos hiperparâmetros.** Os valores são fixos e foram definidos manualmente: o código não faz busca em grade, busca aleatória nem validação cruzada. Portanto os modelos não foram otimizados. A validação é cronológica (2023 para comparar os modelos e 2024 em diante como teste final). O Poisson foi escolhido como modelo de produção porque seu desempenho é muito próximo ao do HistGradientBoosting e do XGBoost (ver `modelos/metricas_regressao.csv`), além de ser adequado a contagens de gols, simples de interpretar e leve (cerca de 8 KB por arquivo, contra dezenas de MB do Random Forest).
+**Escolha do modelo e dos hiperparâmetros.** Os valores são fixos e foram definidos manualmente: o código não faz busca em grade, busca aleatória nem validação cruzada. Portanto os modelos não foram otimizados. A validação é cronológica (2023 para comparar os modelos e 2024 em diante como teste final). O XGBoost com perda de Poisson foi escolhido como modelo de produção porque é um algoritmo baseado em árvores, modela diretamente contagens de gols (λ sempre positivo) e tem desempenho equivalente ao dos demais modelos (ver `modelos/metricas_regressao.csv` e `modelos/metricas_probabilidades.csv`). As diferenças entre os modelos são pequenas, dentro do ruído esperado para uma validação de 380 jogos e um teste de 760, e nenhum modelo vence em todas as métricas.
 
-**Reprodutibilidade.** Todas as sementes são fixas (`random_state=42`). Mesmo assim, o resultado de modelos de boosting (HistGradientBoosting e XGBoost) pode variar na terceira ou quarta casa decimal entre máquinas e versões de bibliotecas. As tabelas em `modelos/` refletem a última execução do treino.
+**Reprodutibilidade.** Todas as sementes são fixas (`random_state=42`). Mesmo assim, o resultado dos modelos de boosting e da rede neural pode variar na terceira ou quarta casa decimal entre máquinas e versões de bibliotecas. As tabelas em `modelos/` refletem a última execução do treino.
 
 ### 4.5 Distribuição de placares (`probabilidades.py`)
 
@@ -137,7 +139,7 @@ O fluxo, executado pelo app, é:
 1. `adicionar_partida_futura` insere a partida sem placar no histórico.
 2. `construir_base` reconstrói todos os atributos. Como o jogo futuro não tem resultado, ele não entra nos históricos, e seus atributos refletem só o passado.
 3. A linha da partida é extraída e reordenada conforme as colunas do treino.
-4. Os dois modelos Poisson preveem λ_M e λ_V.
+4. Os dois modelos XGBoost (perda de Poisson) preveem λ_M e λ_V.
 5. `calcular_matriz_placares` e `calcular_probabilidades_resultado` produzem as probabilidades e os 4 placares mais prováveis.
 6. `obter_historico_partida` recupera os últimos 5 jogos de cada time e os últimos 5 confrontos diretos para exibição.
 
@@ -147,7 +149,7 @@ O fluxo, executado pelo app, é:
 - **Probabilidades M/E/V:** Log Loss, Brier Score e acurácia, comparados com um baseline que usa a frequência histórica das classes.
 - **Classificação:** acurácia, precisão, recall e F1 (macro e por classe) e matriz de confusão.
 - **Análises complementares:** acerto de 0x0 e recall das vitórias do visitante.
-- **Tabelas de métricas:** `regressao.py` consolida as métricas de todos os modelos (baseline, Random Forest, Poisson, HistGradientBoosting e XGBoost), na validação e no teste, em `modelos/metricas_regressao.csv`, e as métricas das probabilidades M/E/V (baseline, Poisson e Dixon-Coles) em `modelos/metricas_probabilidades.csv`. As duas tabelas são exibidas na seção "Desempenho do modelo" do dashboard.
+- **Tabelas de métricas:** `regressao.py` consolida as métricas de todos os modelos (baseline, XGBoost `count:poisson`, Poisson linear, rede neural, Random Forest, HistGradientBoosting e XGBoost com erro quadrático), na validação e no teste, em `modelos/metricas_regressao.csv`, e as métricas das probabilidades M/E/V (baseline, modelo do app, Dixon-Coles, Poisson linear e rede neural) em `modelos/metricas_probabilidades.csv`. As duas tabelas são exibidas na seção "Desempenho do modelo" do dashboard.
 
 ### 4.8 Interface (`app.py`)
 
@@ -174,7 +176,7 @@ python -m src.treino
 streamlit run app.py
 ```
 
-O repositório versiona os CSVs brutos (`data/raw/`), os modelos Poisson (`*_poisson.joblib`, cerca de 8 KB cada) e as tabelas de métricas, então o app roda logo após clonar. O `.gitignore` exclui apenas `data/processed/` (regenerado pelos passos 1 e 2) e os Random Forest de comparação (24 a 31 MB cada, regenerados pelo passo 3).
+O repositório versiona os CSVs brutos (`data/raw/`), os modelos de produção (`xgboost_poisson_*.joblib`, cerca de 600 KB cada) e as tabelas de métricas, então o app roda logo após clonar. O `.gitignore` exclui apenas `data/processed/` (regenerado pelos passos 1 e 2). Os modelos de comparação (Poisson linear, rede neural, Random Forest etc.) são treinados e avaliados a cada execução, mas não são salvos em disco, porque o app não os usa.
 
 ## 6. Limitações e pontos de atenção
 
