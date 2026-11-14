@@ -1,4 +1,4 @@
-
+# @Author: gabriel.bressane  # @Date: 2026-11-14 01:07:39  # @Last Modified by:   gabriel.bressane  # @Last Modified time: 2026-11-14 01:07:39 
 """Metricas de avaliacao dos modelos de classificacao."""
 
 import pandas as pd

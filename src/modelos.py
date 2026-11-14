@@ -1,4 +1,4 @@
-
+# @Author: gabriel.bressane  # @Date: 2026-11-14 01:07:55  # @Last Modified by:   gabriel.bressane  # @Last Modified time: 2026-11-14 01:07:55 
 """Funcoes para criacao dos modelos de classificacao e regressao."""
 
 from sklearn.ensemble import (

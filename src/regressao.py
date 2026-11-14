@@ -1,4 +1,4 @@
-
+# @Author: gabriel.bressane  # @Date: 2026-11-14 01:08:09  # @Last Modified by:   gabriel.bressane  # @Last Modified time: 2026-11-14 01:08:09 
 """Treinamento e avaliacao dos modelos de regressao."""
 
 import numpy as np

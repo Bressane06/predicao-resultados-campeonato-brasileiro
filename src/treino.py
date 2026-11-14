@@ -1,4 +1,4 @@
-
+# @Author: gabriel.bressane  # @Date: 2026-11-14 01:08:13  # @Last Modified by:   gabriel.bressane  # @Last Modified time: 2026-11-14 01:08:13 
 """Treinamento e avaliacao inicial dos modelos."""
 
 import pandas as pd

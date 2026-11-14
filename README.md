@@ -14,14 +14,6 @@ Aplicação que prevê, para uma partida do Brasileirão, os **gols esperados de
 
 A previsão combina engenharia de atributos sobre o histórico de partidas, um modelo de árvores (XGBoost com perda de Poisson) e uma matriz de probabilidade de placares. Os detalhes de implementação estão em [docs/tecnico.md](docs/tecnico.md).
 
-## Fonte de dados
-
-Os dados utilizados neste projeto foram obtidos no Kaggle:
-
-[Campeonato Brasileiro de Futebol](https://www.kaggle.com/datasets/adaoduque/campeonato-brasileiro-de-futebol)
-
-Os arquivos CSV originais já estão em `data/raw/`. Para atualizar a base, baixe-os novamente do Kaggle e substitua-os.
-
 ## Como executar
 
 ```bash

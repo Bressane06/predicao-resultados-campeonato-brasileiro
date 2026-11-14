@@ -1,4 +1,4 @@
-
+# @Author: gabriel.bressane  # @Date: 2026-11-14 01:08:03  # @Last Modified by:   gabriel.bressane  # @Last Modified time: 2026-11-14 01:08:03 
 import numpy as np
 import pandas as pd
 from scipy.stats import poisson

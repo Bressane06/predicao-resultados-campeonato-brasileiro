@@ -1,4 +1,4 @@
-
+# @Author: gabriel.bressane  # @Date: 2026-11-14 01:07:59  # @Last Modified by:   gabriel.bressane  # @Last Modified time: 2026-11-14 01:07:59 
 """Funcoes para salvar e carregar modelos."""
 
 import joblib
