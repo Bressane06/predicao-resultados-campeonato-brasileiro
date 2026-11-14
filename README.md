@@ -146,12 +146,14 @@ $$
 
 ### 4. Confronto direto (H2H)
 
-Considera os últimos 5 jogos entre os dois clubes, em qualquer mando. Com `i = 0` sendo o mais recente e `p_i` os pontos do mandante atual naquele jogo:
+Considera os últimos 5 jogos entre os dois clubes, em qualquer mando. Com $i = 0$ sendo o mais recente e $p_i$ os pontos do mandante atual naquele jogo:
 
 $$
-w_i = 0{,}8^{\,i}
-\qquad
-\text{h2h\_aproveitamento} = \frac{\sum_i w_i \, p_i}{3 \sum_i w_i}
+w_i = 0.8^i
+$$
+
+$$
+\mathrm{h2h\_aproveitamento} = \frac{\sum_i w_i \cdot p_i}{3 \cdot \sum_i w_i}
 $$
 
 ### 5. Modelo de gols: gradient boosting com perda de Poisson
